@@ -8,23 +8,26 @@ import {
   useState,
   type ChangeEvent,
   type FormEvent,
-  type ReactNode,
 } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   Check,
-  CircleGauge,
+  ChevronRight,
   Cloud,
   Download,
-  Globe2,
   HardDrive,
+  Map as MapIcon,
   MapPin,
+  PanelLeftClose,
   Plane,
   Plus,
   Route,
+  Search,
   TrainFront,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { MapShell } from "@/components/map-shell";
@@ -44,14 +47,21 @@ import {
 } from "@/lib/journal-backup";
 
 type ModeFilter = "all" | TravelMode;
+type PanelView = "journal" | "detail" | "add";
 
-function formatDate(value: string) {
+function formatDate(value: string, long = false) {
   return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
+    day: "2-digit",
+    month: long ? "long" : "short",
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${value}T12:00:00.000Z`));
+}
+
+function formatTime(value?: string) {
+  if (!value) return "--:--";
+  const match = value.match(/\d{2}:\d{2}/);
+  return match?.[0] ?? value.slice(0, 5);
 }
 
 function statsFor(legs: JourneyLeg[]): TravelStats {
@@ -75,27 +85,10 @@ function statsFor(legs: JourneyLeg[]): TravelStats {
   };
 }
 
-function StatCard({
-  icon,
-  label,
-  value,
-  detail,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <article className="stat-card">
-      <span className="stat-card__icon">{icon}</span>
-      <div>
-        <p>{label}</p>
-        <strong>{value}</strong>
-        <span>{detail}</span>
-      </div>
-    </article>
-  );
+function journeyYearLabel(legs: JourneyLeg[]) {
+  const years = new Set(legs.map((leg) => leg.travelDate.slice(0, 4)));
+  if (years.size === 1) return `${Array.from(years)[0]} passport`;
+  return "All-time passport";
 }
 
 function PlaceCombobox({
@@ -125,9 +118,10 @@ function PlaceCombobox({
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/places/search?kind=${kind}&q=${encodeURIComponent(trimmedQuery)}`, {
-          signal: controller.signal,
-        });
+        const response = await fetch(
+          `/api/places/search?kind=${kind}&q=${encodeURIComponent(trimmedQuery)}`,
+          { signal: controller.signal },
+        );
         const data = (await response.json()) as { places?: Place[] };
         setResults((data.places ?? []).filter((place) => place.id !== excludeId));
       } catch (error) {
@@ -151,10 +145,10 @@ function PlaceCombobox({
   }
 
   return (
-    <label className="station-search">
-      <span>{label}</span>
-      <div className="station-search__control">
-        <MapPin size={16} />
+    <label className="place-field">
+      <span className="field-label">{label}</span>
+      <div className="place-field__control">
+        <MapPin size={15} aria-hidden="true" />
         <input
           value={query}
           onChange={(event) => {
@@ -164,7 +158,7 @@ function PlaceCombobox({
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => window.setTimeout(() => setOpen(false), 140)}
-          placeholder={kind === "station" ? "Search any European station" : "Search airport, city or IATA code"}
+          placeholder={kind === "station" ? "Stuttgart Hbf" : "STR or Stuttgart"}
           autoComplete="off"
           role="combobox"
           aria-expanded={open && query.trim().length >= 2}
@@ -172,13 +166,13 @@ function PlaceCombobox({
           aria-autocomplete="list"
           required
         />
-        {value && <Check className="station-search__check" size={15} />}
+        {value && <Check className="place-field__check" size={15} aria-hidden="true" />}
       </div>
 
       {open && query.trim().length >= 2 && !value && (
-        <div className="station-results" id={listId} role="listbox">
+        <div className="place-results" id={listId} role="listbox">
           {loading ? (
-            <p>{kind === "station" ? "Searching 52,000+ stations…" : "Searching 4,000+ airports…"}</p>
+            <p>Searching places…</p>
           ) : results.length ? (
             results.map((place) => (
               <button
@@ -189,15 +183,16 @@ function PlaceCombobox({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => selectPlace(place)}
               >
-                <span>{kind === "station" ? <TrainFront size={15} /> : <Plane size={15} />}</span>
-                <div>
+                {kind === "station" ? <TrainFront size={15} /> : <Plane size={15} />}
+                <span>
                   <strong>{place.name}</strong>
-                  <small>{place.city !== place.name ? `${place.city} · ` : ""}{place.country} · {place.code}</small>
-                </div>
+                  <small>{place.city !== place.name ? `${place.city} · ` : ""}{place.country}</small>
+                </span>
+                <code>{place.code}</code>
               </button>
             ))
           ) : (
-            <p>{kind === "station" ? "No matching station. Try a nearby city or UIC code." : "No matching airport. Try its city, name, IATA or ICAO code."}</p>
+            <p>No matching place. Try a nearby city or station code.</p>
           )}
         </div>
       )}
@@ -207,9 +202,11 @@ function PlaceCombobox({
 
 function AddJourney({
   onAdd,
+  onBack,
   persistence,
 }: {
   onAdd: (leg: JourneyLeg) => void;
+  onBack: () => void;
   persistence: PersistenceMode;
 }) {
   const [number, setNumber] = useState("");
@@ -218,7 +215,7 @@ function AddJourney({
   const [operator, setOperator] = useState("");
   const [origin, setOrigin] = useState<Place | null>(null);
   const [destination, setDestination] = useState<Place | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "added" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
 
   function changeMode(nextMode: TravelMode) {
     setMode(nextMode);
@@ -235,205 +232,258 @@ function AddJourney({
       const response = await fetch("/api/legs/manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          number,
-          travelDate: date,
-          operator,
-          origin,
-          destination,
-        }),
+        body: JSON.stringify({ mode, number, travelDate: date, operator, origin, destination }),
       });
       const data = (await response.json()) as { leg?: JourneyLeg };
       if (!response.ok || !data.leg) throw new Error("Could not add journey");
-
       onAdd(data.leg);
-      setNumber("");
-      setOperator("");
-      setOrigin(null);
-      setDestination(null);
-      setStatus("added");
     } catch {
       setStatus("error");
     }
   }
 
   return (
-    <section className="add-card" id="add-journey" aria-labelledby="add-journey-title">
-      <div className="add-card__heading">
-        <span className="section-kicker">New entry</span>
-        <h2 id="add-journey-title">Add your journey</h2>
-        <p>Choose the endpoints and it will appear on your map.</p>
+    <div className="panel-view panel-view--form">
+      <div className="panel-view__header">
+        <button className="icon-button" type="button" onClick={onBack} aria-label="Back to journeys">
+          <ArrowLeft size={19} />
+        </button>
+        <div>
+          <span className="section-label">New entry</span>
+          <h1>Add a journey</h1>
+        </div>
       </div>
 
-      <form className="journey-form journey-form--manual" onSubmit={submitJourney}>
-        <div className="mode-choice" aria-label="Journey mode">
-          <button
-            className={mode === "rail" ? "is-active" : ""}
-            type="button"
-            onClick={() => changeMode("rail")}
-          >
-            <TrainFront size={16} /> Rail
+      <form className="journey-form" onSubmit={submitJourney}>
+        <div className="mode-switch mode-switch--form" aria-label="Journey mode">
+          <button className={mode === "rail" ? "is-active" : ""} type="button" onClick={() => changeMode("rail")}>
+            <TrainFront size={15} /> Rail
           </button>
-          <button
-            className={mode === "air" ? "is-active" : ""}
-            type="button"
-            onClick={() => changeMode("air")}
-          >
-            <Plane size={16} /> Air
+          <button className={mode === "air" ? "is-active" : ""} type="button" onClick={() => changeMode("air")}>
+            <Plane size={15} /> Air
           </button>
         </div>
 
-        <div className="form-row">
+        <div className="form-grid">
           <label>
-            <span>Train or flight number</span>
+            <span className="field-label">{mode === "rail" ? "Train" : "Flight"} number</span>
             <input
               value={number}
               onChange={(event) => setNumber(event.target.value)}
-              placeholder={mode === "rail" ? "e.g. ICE 573" : "e.g. KL 1776"}
+              placeholder={mode === "rail" ? "ICE 573" : "KL 1776"}
               autoComplete="off"
               required
             />
           </label>
           <label>
-            <span>Travel date</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              required
-            />
+            <span className="field-label">Travel date</span>
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
           </label>
         </div>
 
+        <PlaceCombobox label="From" kind={mode === "rail" ? "station" : "airport"} value={origin} onChange={setOrigin} excludeId={destination?.id} />
+        <PlaceCombobox label="To" kind={mode === "rail" ? "station" : "airport"} value={destination} onChange={setDestination} excludeId={origin?.id} />
+
         <label>
-          <span>Operator <small>optional</small></span>
+          <span className="field-label">Operator <small>optional</small></span>
           <input
             value={operator}
             onChange={(event) => setOperator(event.target.value)}
-            placeholder={mode === "rail" ? "e.g. Deutsche Bahn" : "e.g. KLM"}
+            placeholder={mode === "rail" ? "Deutsche Bahn" : "KLM"}
           />
         </label>
 
-        <div className="form-row station-search-row">
-          <PlaceCombobox
-            label="From"
-            kind={mode === "rail" ? "station" : "airport"}
-            value={origin}
-            onChange={setOrigin}
-            excludeId={destination?.id}
-          />
-          <PlaceCombobox
-            label="To"
-            kind={mode === "rail" ? "station" : "airport"}
-            value={destination}
-            onChange={setDestination}
-            excludeId={origin?.id}
-          />
-        </div>
-
-        <button
-          className="primary-button primary-button--wide"
-          disabled={status === "loading" || !origin || !destination}
-        >
-          {status === "loading" ? "Adding…" : "Add to journal"}
+        <button className="primary-action" disabled={status === "loading" || !origin || !destination}>
+          {status === "loading" ? "Adding journey…" : "Add to passport"}
           {status !== "loading" && <ArrowRight size={17} />}
         </button>
+
+        {status === "error" && <p className="form-error" role="alert">Choose two different places and try again.</p>}
       </form>
 
-      <div className="form-feedback" aria-live="polite">
-        {status === "added" && (
-          <p className="feedback-note feedback-note--success">
-            <Check size={15} /> Saved to your journal and map.
-          </p>
-        )}
-        {status === "error" && (
-          <p className="feedback-note feedback-note--error">
-            Choose two different places and try again.
-          </p>
-        )}
-      </div>
-
-      <p className="demo-note">
-        {persistence === "database" ? <Cloud size={12} /> : <HardDrive size={12} />}
-        {persistence === "database"
-          ? "Stored in Supabase with a browser backup"
-          : "Stored locally in this browser"}
+      <p className="persistence-note">
+        {persistence === "database" ? <Cloud size={13} /> : <HardDrive size={13} />}
+        {persistence === "database" ? "Syncs to Supabase and this browser" : "Saved privately in this browser"}
       </p>
-    </section>
+    </div>
   );
 }
 
-function JourneyList({
-  legs,
+function JourneyDetail({
+  leg,
+  onBack,
   onRemove,
 }: {
-  legs: JourneyLeg[];
+  leg: JourneyLeg;
+  onBack: () => void;
   onRemove: (id: string) => void;
 }) {
-  const journeys = [...legs].sort((a, b) => b.travelDate.localeCompare(a.travelDate));
+  const stops = leg.stops.length > 0
+    ? leg.stops
+    : [
+        { place: leg.origin, sequence: 0, boarded: true },
+        { place: leg.destination, sequence: 1, boarded: true },
+      ];
 
   return (
-    <section className="journal-card" id="journal" aria-labelledby="journal-title">
-      <div className="card-heading-row">
+    <div className="panel-view panel-view--detail">
+      <div className="panel-view__header detail-header">
+        <button className="icon-button" type="button" onClick={onBack} aria-label="Back to journeys"><ArrowLeft size={19} /></button>
         <div>
-          <span className="section-kicker">Journal</span>
-          <h2 id="journal-title">Your journeys</h2>
+          <span className="section-label">{formatDate(leg.travelDate, true)}</span>
+          <h1>{leg.number}</h1>
         </div>
-        <span className="journey-total">{journeys.length}</span>
+        <span className={`mode-badge mode-badge--${leg.mode}`}>
+          {leg.mode === "rail" ? <TrainFront size={14} /> : <Plane size={14} />}{leg.mode}
+        </span>
       </div>
 
-      {journeys.length === 0 ? (
-        <div className="journal-empty">
-          <Route size={22} />
-          <strong>No journeys yet</strong>
-          <p>Your first entry will appear here.</p>
+      <section className="departure-card" aria-label={`${leg.origin.name} to ${leg.destination.name}`}>
+        <div className="departure-card__topline">
+          <span>{leg.operator || (leg.mode === "rail" ? "Rail service" : "Flight")}</span>
+          <strong>{leg.number}</strong>
         </div>
-      ) : (
-        <div className="journey-list">
-          {journeys.map((leg) => (
-            <article className="journey-row" key={leg.id}>
-              <span className={`journey-row__mode journey-row__mode--${leg.mode}`}>
-                {leg.mode === "rail" ? <TrainFront size={17} /> : <Plane size={17} />}
-              </span>
-              <div className="journey-row__main">
-                <div>
-                  <strong>{leg.origin.city}</strong>
-                  <span className="route-line" aria-hidden="true"><i /></span>
-                  <strong>{leg.destination.city}</strong>
-                </div>
-                <p>{leg.number} · {leg.operator}</p>
-              </div>
-              <div className="journey-row__meta">
-                <time dateTime={leg.travelDate}>{formatDate(leg.travelDate)}</time>
-                <span>{leg.distanceKm.toLocaleString("en-GB")} km</span>
-              </div>
-              <button
-                className="journey-row__delete"
-                type="button"
-                title="Delete journey"
-                aria-label={`Delete ${leg.number} from ${leg.origin.city} to ${leg.destination.city}`}
-                onClick={() => onRemove(leg.id)}
-              >
-                <Trash2 size={15} />
-              </button>
-            </article>
+        <div className="departure-route">
+          <div>
+            <span className="route-code">{leg.origin.code || "ORG"}</span>
+            <h2>{leg.origin.city}</h2>
+            <p>{leg.origin.name}</p>
+          </div>
+          <span className="route-arrow" aria-hidden="true"><i /><ChevronRight size={18} /></span>
+          <div>
+            <span className="route-code">{leg.destination.code || "DST"}</span>
+            <h2>{leg.destination.city}</h2>
+            <p>{leg.destination.name}</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="detail-stats">
+        <div><span>Distance</span><strong>{leg.distanceKm.toLocaleString("en-GB")} km</strong></div>
+        <div><span>Stops</span><strong>{stops.length}</strong></div>
+        <div><span>Source</span><strong>{leg.source}</strong></div>
+      </div>
+
+      <section className="calling-points" aria-labelledby="calling-points-title">
+        <div className="section-heading">
+          <div><span className="section-label">Route</span><h2 id="calling-points-title">Calling points</h2></div>
+          <span>{stops.length} stops</span>
+        </div>
+        <ol>
+          {stops.map((stop, index) => (
+            <li key={`${stop.place.id}-${stop.sequence}`}>
+              <time>{formatTime(stop.departure ?? stop.arrival)}</time>
+              <span className="calling-points__track" aria-hidden="true"><i /></span>
+              <div><strong>{stop.place.name}</strong><span>{stop.place.city} · {stop.place.country}</span></div>
+              {(index === 0 || index === stops.length - 1) && <small>{index === 0 ? "DEPART" : "ARRIVE"}</small>}
+            </li>
           ))}
-        </div>
-      )}
-    </section>
+        </ol>
+      </section>
+
+      <button className="danger-action" type="button" onClick={() => onRemove(leg.id)}><Trash2 size={15} /> Delete journey</button>
+    </div>
   );
 }
 
-export function TravelDashboard({
-  initialLegs,
-  persistence,
+function JourneyJournal({
+  legs,
+  stats,
+  mode,
+  query,
+  onModeChange,
+  onQueryChange,
+  onSelect,
+  onAdd,
 }: {
-  initialLegs: JourneyLeg[];
-  persistence: PersistenceMode;
+  legs: JourneyLeg[];
+  stats: TravelStats;
+  mode: ModeFilter;
+  query: string;
+  onModeChange: (mode: ModeFilter) => void;
+  onQueryChange: (query: string) => void;
+  onSelect: (leg: JourneyLeg) => void;
+  onAdd: () => void;
 }) {
+  return (
+    <div className="panel-view panel-view--journal">
+      <section className="passport-summary">
+        <span className="section-label">{journeyYearLabel(legs)}</span>
+        <div className="passport-summary__title">
+          <h1>Your journeys</h1>
+          <button className="add-button" type="button" onClick={onAdd}><Plus size={16} /> Add</button>
+        </div>
+        <div className="passport-stats" aria-label="Travel summary">
+          <div><strong>{stats.journeys}</strong><span>Journeys</span></div>
+          <div><strong>{stats.distanceKm.toLocaleString("en-GB")}</strong><span>Kilometres</span></div>
+          <div><strong>{stats.places}</strong><span>Places</span></div>
+        </div>
+      </section>
+
+      <div className="journal-controls">
+        <label className="journey-search">
+          <Search size={16} aria-hidden="true" />
+          <span className="sr-only">Search journeys</span>
+          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search train, city or station" />
+          {query && <button type="button" onClick={() => onQueryChange("")} aria-label="Clear search"><X size={14} /></button>}
+        </label>
+        <div className="mode-switch" aria-label="Filter journeys by mode">
+          {(["all", "rail", "air"] as const).map((filterMode) => (
+            <button
+              type="button"
+              key={filterMode}
+              className={mode === filterMode ? "is-active" : ""}
+              aria-pressed={mode === filterMode}
+              onClick={() => onModeChange(filterMode)}
+            >
+              {filterMode === "rail" && <TrainFront size={13} />}
+              {filterMode === "air" && <Plane size={13} />}
+              {filterMode === "all" ? "All" : filterMode === "rail" ? "Rail" : "Air"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <section className="journey-board" aria-labelledby="journeys-title">
+        <div className="section-heading section-heading--board">
+          <div><span className="section-label">Journal</span><h2 id="journeys-title">Recent journeys</h2></div>
+          <span>{legs.length} shown</span>
+        </div>
+
+        {legs.length === 0 ? (
+          <div className="journal-empty">
+            <span><Route size={21} /></span>
+            <strong>No journeys here</strong>
+            <p>{query ? "Try a different search." : "Add a journey to draw your first line."}</p>
+            {!query && <button type="button" onClick={onAdd}>Add journey</button>}
+          </div>
+        ) : (
+          <div className="journey-list">
+            {legs.map((leg) => (
+              <button className="journey-row" data-mode={leg.mode} type="button" key={leg.id} onClick={() => onSelect(leg)}>
+                <span className="journey-row__number">{leg.number}</span>
+                <span className="journey-row__route">
+                  <strong>{leg.origin.city}</strong><i aria-hidden="true" /><strong>{leg.destination.city}</strong>
+                  <small>{leg.operator || (leg.mode === "rail" ? "Rail service" : "Flight")}</small>
+                </span>
+                <span className="journey-row__meta"><time>{formatDate(leg.travelDate)}</time><small>{leg.distanceKm.toLocaleString("en-GB")} km</small></span>
+                <ChevronRight className="journey-row__chevron" size={16} aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export function TravelDashboard({ initialLegs, persistence }: { initialLegs: JourneyLeg[]; persistence: PersistenceMode }) {
   const [legs, setLegs] = useState(initialLegs);
   const [mode, setMode] = useState<ModeFilter>("all");
+  const [query, setQuery] = useState("");
+  const [panelView, setPanelView] = useState<PanelView>("journal");
+  const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [backupStatus, setBackupStatus] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -459,37 +509,47 @@ export function TravelDashboard({
       })
         .then(async (response) => {
           const data = (await response.json()) as { legs?: JourneyLeg[]; migrated?: number };
-          if (!response.ok || !data.legs?.every(isJourneyLeg)) {
-            throw new Error("Could not migrate the browser journal.");
-          }
+          if (!response.ok || !data.legs?.every(isJourneyLeg)) throw new Error("Migration failed");
           setLegs(data.legs);
-          setBackupStatus(
-            data.migrated
-              ? `Migrated ${data.migrated} ${data.migrated === 1 ? "journey" : "journeys"} to Supabase.`
-              : "Supabase already contains journeys; the browser backup was kept unchanged.",
-          );
+          setBackupStatus(data.migrated ? `Migrated ${data.migrated} journeys to Supabase.` : "Browser backup retained.");
         })
         .catch(() => {
           setLegs(validLegs);
           setBackupStatus("Supabase migration failed; using the browser backup.");
         });
     } catch {
-      // Ignore malformed or unavailable browser storage and start with an empty log.
+      // Ignore unavailable or malformed browser storage.
     }
   }, [initialLegs.length, persistence]);
 
-  const visibleLegs = useMemo(
-    () => legs.filter((leg) => mode === "all" || leg.mode === mode),
-    [legs, mode],
-  );
   const stats = useMemo(() => statsFor(legs), [legs]);
+  const visibleLegs = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return [...legs]
+      .filter((leg) => mode === "all" || leg.mode === mode)
+      .filter((leg) => {
+        if (!normalizedQuery) return true;
+        return [leg.number, leg.operator, leg.origin.name, leg.origin.city, leg.destination.name, leg.destination.city]
+          .some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
+      })
+      .sort((a, b) => b.travelDate.localeCompare(a.travelDate));
+  }, [legs, mode, query]);
+  const mapLegs = useMemo(() => legs.filter((leg) => mode === "all" || leg.mode === mode), [legs, mode]);
+  const selectedLeg = legs.find((leg) => leg.id === selectedLegId) ?? null;
 
   function saveLegs(nextLegs: JourneyLeg[]) {
-    try {
-      window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(nextLegs));
-    } catch {
-      // The in-memory journal still works if storage is unavailable.
-    }
+    try { window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(nextLegs)); } catch { /* In-memory state still works. */ }
+  }
+
+  function showJournal() {
+    setPanelView("journal");
+    setSelectedLegId(null);
+  }
+
+  function selectLeg(leg: JourneyLeg) {
+    setSelectedLegId(leg.id);
+    setPanelView("detail");
+    setSidebarOpen(true);
   }
 
   function addLeg(leg: JourneyLeg) {
@@ -498,6 +558,8 @@ export function TravelDashboard({
       saveLegs(nextLegs);
       return nextLegs;
     });
+    setSelectedLegId(leg.id);
+    setPanelView("detail");
   }
 
   async function removeLeg(id: string) {
@@ -505,12 +567,11 @@ export function TravelDashboard({
     const nextLegs = legs.filter((leg) => leg.id !== id);
     setLegs(nextLegs);
     saveLegs(nextLegs);
+    showJournal();
 
     if (persistence === "database") {
       try {
-        const response = await fetch(`/api/legs?id=${encodeURIComponent(id)}`, {
-          method: "DELETE",
-        });
+        const response = await fetch(`/api/legs?id=${encodeURIComponent(id)}`, { method: "DELETE" });
         if (!response.ok) throw new Error("Delete failed");
       } catch {
         setLegs(previousLegs);
@@ -539,169 +600,94 @@ export function TravelDashboard({
 
     try {
       const backup = parseJournalBackup(await file.text());
-      let nextLegs = importMode === "replace"
-        ? backup.journeys
-        : mergeJourneys(legs, backup.journeys);
-
+      let nextLegs = importMode === "replace" ? backup.journeys : mergeJourneys(legs, backup.journeys);
       if (persistence === "database") {
         const response = await fetch("/api/legs/migrate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            journeys: nextLegs,
-            replaceExisting: importMode === "replace",
-          }),
+          body: JSON.stringify({ journeys: nextLegs, replaceExisting: importMode === "replace" }),
         });
         const data = (await response.json()) as { legs?: JourneyLeg[]; error?: string };
-        if (!response.ok || !data.legs?.every(isJourneyLeg)) {
-          throw new Error(data.error || "Could not import this backup to Supabase.");
-        }
+        if (!response.ok || !data.legs?.every(isJourneyLeg)) throw new Error(data.error || "Import failed");
         nextLegs = data.legs;
       }
-
       saveLegs(nextLegs);
       setLegs(nextLegs);
-      setBackupStatus(
-        `${importMode === "replace" ? "Restored" : "Merged"} ${backup.journeys.length} ${backup.journeys.length === 1 ? "journey" : "journeys"}.`,
-      );
+      setBackupStatus(`${importMode === "replace" ? "Restored" : "Merged"} ${backup.journeys.length} journeys.`);
     } catch (error) {
       setBackupStatus(error instanceof Error ? error.message : "Could not import this backup.");
     }
   }
 
-  function jumpToAddJourney() {
-    document.getElementById("add-journey")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#overview" aria-label="Rail Log home">
-          <BrandMark />
-          <span>rail log</span>
-        </a>
-        <nav className="topnav" aria-label="Primary navigation">
-          <a href="#overview" className="is-active">Overview</a>
-          <a href="#map">Map</a>
-          <a href="#journal">Journal</a>
-        </nav>
-        <div className="topbar__actions">
-          <span className="demo-pill"><i /> {persistence === "database" ? "Supabase journal" : "Local journal"}</span>
-          <button type="button" className="primary-button primary-button--compact" onClick={jumpToAddJourney}>
-            <Plus size={16} /> Add journey
+    <main className={`map-workspace ${sidebarOpen ? "has-sidebar" : "is-map-only"}`}>
+      <div className="map-canvas" aria-label="Journey map">
+        <MapShell legs={mapLegs} selectedLegId={selectedLegId} onSelectLeg={(id) => {
+          const leg = legs.find((candidate) => candidate.id === id);
+          if (leg) selectLeg(leg);
+        }} />
+
+        {!sidebarOpen && (
+          <button className="show-sidebar" type="button" onClick={() => setSidebarOpen(true)}>
+            <BrandMark /><span>Open journeys</span>
           </button>
+        )}
+
+        <div className="map-status" aria-live="polite">
+          <span><i className="map-status__rail" /> {mode === "air" ? 0 : mapLegs.filter((leg) => leg.mode === "rail").length} rail</span>
+          <span><i className="map-status__air" /> {mode === "rail" ? 0 : mapLegs.filter((leg) => leg.mode === "air").length} air</span>
         </div>
-      </header>
 
-      <main id="overview">
-        <section className="hero-section">
-          <div>
-            <span className="eyebrow"><span /> Personal travel journal</span>
-            <h1>Every journey,<br /><em>drawn in lines.</em></h1>
+        {legs.length === 0 && (
+          <div className="map-empty-state">
+            <span><Route size={22} /></span><strong>Your map is ready</strong><p>Add a journey to draw your first line.</p>
+            <button type="button" onClick={() => { setSidebarOpen(true); setPanelView("add"); }}>Add journey <ArrowRight size={14} /></button>
           </div>
-          <p>
-            Keep one private record of the trains and flights that carried you
-            across Europe — one line at a time.
-          </p>
-        </section>
+        )}
+      </div>
 
-        <section className="stats-grid" aria-label="Travel statistics">
-          <StatCard icon={<Route size={20} />} label="Journeys" value={String(stats.journeys)} detail={`${stats.railJourneys} rail · ${stats.airJourneys} air`} />
-          <StatCard icon={<CircleGauge size={20} />} label="Distance" value={`${stats.distanceKm.toLocaleString("en-GB")} km`} detail="Approximate distance" />
-          <StatCard icon={<Globe2 size={20} />} label="Countries" value={String(stats.countries)} detail="Borders crossed" />
-          <StatCard icon={<MapPin size={20} />} label="Places" value={String(stats.places)} detail="Stations & airports" />
-        </section>
-
-        <section className="map-card" id="map" aria-labelledby="map-title">
-          <div className="map-card__header">
-            <div>
-              <span className="section-kicker">The big picture</span>
-              <h2 id="map-title">Journey map</h2>
+      {sidebarOpen && (
+        <aside className="journey-sidebar" aria-label="Journey information">
+          <header className="sidebar-header">
+            <button className="brand" type="button" onClick={showJournal} aria-label="Rail Log journeys"><BrandMark /><span>rail log</span></button>
+            <div className="sidebar-header__actions">
+              <span className="sync-indicator" title={persistence === "database" ? "Supabase journal" : "Local journal"}><i /> {persistence === "database" ? "Synced" : "Private"}</span>
+              <button className="icon-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)} aria-label="Hide journey panel"><PanelLeftClose size={18} /></button>
             </div>
-            <div className="mode-filter" aria-label="Filter map by travel mode">
-              {(["all", "rail", "air"] as const).map((filterMode) => (
-                <button
-                  type="button"
-                  key={filterMode}
-                  className={mode === filterMode ? "is-active" : ""}
-                  aria-pressed={mode === filterMode}
-                  onClick={() => setMode(filterMode)}
-                >
-                  {filterMode === "rail" && <TrainFront size={14} />}
-                  {filterMode === "air" && <Plane size={14} />}
-                  {filterMode === "all" ? "All routes" : filterMode}
-                </button>
-              ))}
-            </div>
-          </div>
+          </header>
 
-          <div className="map-stage">
-            <MapShell legs={visibleLegs} />
-            {legs.length === 0 ? (
-              <div className="map-empty-state">
-                <span><Route size={23} /></span>
-                <strong>Your map is ready</strong>
-                <p>Add your first journey to draw a line across it.</p>
-                <button type="button" onClick={jumpToAddJourney}>Add a journey <ArrowRight size={14} /></button>
-              </div>
-            ) : (
-              <>
-                <div className="map-legend">
-                  <span><i className="map-legend__rail" /> Rail</span>
-                  <span><i className="map-legend__air" /> Air</span>
-                </div>
-                <div className="map-count"><strong>{visibleLegs.length}</strong> journeys shown</div>
-              </>
-            )}
-          </div>
-
-          <div className="map-storage-note">
-            <span>
-              {persistence === "database" ? <Cloud size={15} /> : <HardDrive size={15} />}
-              {persistence === "database" ? "Supabase + browser backup" : "Private by default"}
-            </span>
-            <div className="journal-backup">
-              <span className="journal-backup__status" role="status" aria-live="polite">
-                {backupStatus || (persistence === "database"
-                  ? "Journeys sync to Supabase and remain backed up in this browser."
-                  : "Back up your browser journal regularly.")}
-              </span>
-              <select
-                value={importMode}
-                onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}
-                aria-label="How to import a journal backup"
-              >
-                <option value="merge">Merge import</option>
-                <option value="replace">Replace import</option>
-              </select>
-              <button type="button" onClick={exportJournal}>
-                <Download size={14} /> Export
-              </button>
-              <button type="button" onClick={() => importInputRef.current?.click()}>
-                <Upload size={14} /> Import
-              </button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept="application/json,.json"
-                onChange={importJournal}
-                hidden
+          <div className="sidebar-scroll">
+            {panelView === "journal" && (
+              <JourneyJournal
+                legs={visibleLegs}
+                stats={stats}
+                mode={mode}
+                query={query}
+                onModeChange={(nextMode) => { setMode(nextMode); setSelectedLegId(null); }}
+                onQueryChange={setQuery}
+                onSelect={selectLeg}
+                onAdd={() => setPanelView("add")}
               />
-            </div>
+            )}
+            {panelView === "add" && <AddJourney onAdd={addLeg} onBack={showJournal} persistence={persistence} />}
+            {panelView === "detail" && selectedLeg && <JourneyDetail leg={selectedLeg} onBack={showJournal} onRemove={removeLeg} />}
           </div>
-        </section>
 
-        <div className="lower-grid">
-        <AddJourney onAdd={addLeg} persistence={persistence} />
-          <JourneyList legs={legs} onRemove={removeLeg} />
-        </div>
+          <footer className="sidebar-footer">
+            <span className="backup-status" role="status">{backupStatus}</span>
+            <div className="backup-actions">
+              <select value={importMode} onChange={(event) => setImportMode(event.target.value as "merge" | "replace")} aria-label="Journal import mode">
+                <option value="merge">Merge</option><option value="replace">Replace</option>
+              </select>
+              <button type="button" onClick={exportJournal}><Download size={14} /> Export</button>
+              <button type="button" onClick={() => importInputRef.current?.click()}><Upload size={14} /> Import</button>
+              <input ref={importInputRef} type="file" accept="application/json,.json" onChange={importJournal} hidden />
+            </div>
+          </footer>
+        </aside>
+      )}
 
-        <footer className="site-footer">
-          <a className="brand brand--small" href="#overview"><BrandMark /><span>rail log</span></a>
-          <p>Every journey leaves a line.</p>
-          <span>Places: <a href="https://github.com/trainline-eu/stations" target="_blank" rel="noreferrer">Trainline EU</a> · <a href="https://ourairports.com/data/" target="_blank" rel="noreferrer">OurAirports</a></span>
-        </footer>
-      </main>
-    </div>
+      <div className="mobile-map-label" aria-hidden="true"><MapIcon size={14} /> Map</div>
+    </main>
   );
 }

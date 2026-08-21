@@ -13,6 +13,20 @@ const JourneyMap = dynamic(() => import("@/components/journey-map"), {
   ),
 });
 
-export function MapShell({ legs }: { legs: JourneyLeg[] }) {
-  return <JourneyMap legs={legs} />;
+export function MapShell({
+  legs,
+  selectedLegId,
+  onSelectLeg,
+}: {
+  legs: JourneyLeg[];
+  selectedLegId?: string | null;
+  onSelectLeg?: (id: string) => void;
+}) {
+  return (
+    <JourneyMap
+      legs={legs}
+      selectedLegId={selectedLegId}
+      onSelectLeg={onSelectLeg}
+    />
+  );
 }
