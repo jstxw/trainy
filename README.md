@@ -17,8 +17,7 @@ Journeys added through the form are saved in the current browser and restored
 after a reload; each can also be deleted, exported, and restored from a
 versioned JSON backup. Rail endpoints use
 type-ahead search over 52,241 European stations from Trainline EU. Flight
-endpoints search 3,283 scheduled medium and large airports worldwide from
-OurAirports.
+endpoints search 4,154 scheduled airports worldwide from OurAirports.
 
 ## Optional Supabase persistence
 

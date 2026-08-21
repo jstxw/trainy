@@ -178,7 +178,7 @@ function PlaceCombobox({
       {open && query.trim().length >= 2 && !value && (
         <div className="station-results" id={listId} role="listbox">
           {loading ? (
-            <p>{kind === "station" ? "Searching 52,000+ stations…" : "Searching 3,000+ airports…"}</p>
+            <p>{kind === "station" ? "Searching 52,000+ stations…" : "Searching 4,000+ airports…"}</p>
           ) : results.length ? (
             results.map((place) => (
               <button

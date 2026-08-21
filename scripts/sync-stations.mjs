@@ -51,6 +51,8 @@ const stations = rows
   )
   .map((row) => {
     const parentName = namesById.get(row[column.parent_station_id]);
+    const priority = (row[column.uic] ? 100 : 0) +
+      (row[column.is_main_station] === "t" ? 50 : 0);
     return [
       row[column.id],
       row[column.name],
@@ -59,6 +61,7 @@ const stations = rows
       row[column.uic] || row[column.id],
       Number(row[column.longitude]),
       Number(row[column.latitude]),
+      priority,
     ];
   })
   .sort((first, second) => first[1].localeCompare(second[1], "en"));

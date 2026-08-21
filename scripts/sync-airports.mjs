@@ -37,7 +37,12 @@ if (!response.ok) throw new Error(`Airport download failed with ${response.statu
 const lines = (await response.text()).split(/\r?\n/).filter(Boolean);
 const headers = parseRow(lines.shift());
 const column = Object.fromEntries(headers.map((header, index) => [header, index]));
-const includedTypes = new Set(["large_airport", "medium_airport"]);
+const includedTypes = new Set(["large_airport", "medium_airport", "small_airport"]);
+const typePriority = new Map([
+  ["large_airport", 200],
+  ["medium_airport", 100],
+  ["small_airport", 0],
+]);
 
 const airports = lines
   .map((line) => parseRow(line))
@@ -48,15 +53,20 @@ const airports = lines
     row[column.latitude_deg] &&
     row[column.longitude_deg],
   )
-  .map((row) => [
-    row[column.id],
-    row[column.name],
-    row[column.municipality] || row[column.name],
-    row[column.iso_country],
-    row[column.iata_code] || row[column.icao_code] || row[column.ident],
-    Number(row[column.longitude_deg]),
-    Number(row[column.latitude_deg]),
-  ])
+  .map((row) => {
+    const priority = (typePriority.get(row[column.type]) ?? 0) +
+      (row[column.iata_code] ? 50 : 0);
+    return [
+      row[column.id],
+      row[column.name],
+      row[column.municipality] || row[column.name],
+      row[column.iso_country],
+      row[column.iata_code] || row[column.icao_code] || row[column.ident],
+      Number(row[column.longitude_deg]),
+      Number(row[column.latitude_deg]),
+      priority,
+    ];
+  })
   .sort((first, second) => first[1].localeCompare(second[1], "en"));
 
 await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });

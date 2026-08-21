@@ -8,9 +8,10 @@ The running application is the first vertical slice of the architecture in
 - `data/stations.json` is a generated, compact index of 52,241 suggestable
   European stations from the Trainline EU ODbL dataset. `GET /api/places/search`
   searches it without shipping the whole catalog to the browser.
-- `data/airports.json` is the matching search index for 3,283 scheduled medium
-  and large airports worldwide, generated from the public-domain OurAirports
-  dataset. There are no seeded journeys; the personal log starts empty.
+- `data/airports.json` is the matching search index for 4,154 scheduled large,
+  medium, and small airports worldwide, generated from the public-domain
+  OurAirports dataset. There are no seeded journeys; the personal log starts
+  empty.
 - `src/lib/travel-log.ts` is the read boundary used by pages and route handlers.
   `src/lib/journey-repository.ts` switches between an empty server repository
   (with the browser journal as the source of truth) and Supabase based on server
