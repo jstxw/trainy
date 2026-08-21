@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Rail Log
 
-## Getting Started
+A personal map and journal of train and flight journeys across Europe. The app
+follows the boundaries in [`docs/rail-log-architecture (1).md`](docs/rail-log-architecture%20(1).md):
+regenerable timetable data ends at the trip index, while confirmed personal
+journeys are copied into a durable log.
 
-First, run the development server:
+## Run locally
 
-```bash
+```sh
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). The included demo journal
+supports the example lookup `ICE 573` on `2026-07-14` and manual entries. Demo
+entries live in the page session until a Postgres repository is connected.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## API
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `GET /api/lookup?number=ICE+573&date=2026-07-14`
+- `GET|POST /api/legs`
+- `POST /api/legs/manual`
+- `GET /api/map`
+- `GET /api/stats`
 
-## Learn More
+## Production data
 
-To learn more about Next.js, take a look at the following resources:
+Run [`db/migrations/001_initial.sql`](db/migrations/001_initial.sql) in Postgres
+with PostGIS enabled, then replace the demo functions in
+`src/lib/travel-log.ts` with database queries. The GTFS fetcher and DuckDB
+transform remain separate batch jobs; they should never run inside a request.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Checks
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```sh
+npm run lint
+npx tsc --noEmit
+npm run build
+```
