@@ -1,296 +1,176 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArcLayer } from "@deck.gl/layers";
-import { MapboxOverlay } from "@deck.gl/mapbox";
-import * as maplibregl from "maplibre-gl";
-import type {
-  GeoJSONSource,
-  IControl,
-  Map as MapLibreMap,
-  MapLayerMouseEvent,
-} from "maplibre-gl";
-import type { JourneyLeg } from "@/lib/domain";
+import { useEffect, useRef } from "react";
+import * as L from "leaflet";
+import type { Coordinate, JourneyLeg } from "@/lib/domain";
 
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+const EUROPE_CENTER: L.LatLngExpression = [50.2, 10];
 
-function railGeoJson(legs: JourneyLeg[]) {
-  return {
-    type: "FeatureCollection" as const,
-    features: legs
-      .filter((leg) => leg.mode === "rail")
-      .map((leg) => ({
-        type: "Feature" as const,
-        geometry: {
-          type: "LineString" as const,
-          coordinates: leg.geometry,
-        },
-        properties: {
-          id: leg.id,
-          number: leg.number,
-          operator: leg.operator,
-          origin: leg.origin.city,
-          destination: leg.destination.city,
-          distanceKm: leg.distanceKm,
-        },
-      })),
+function toLatLng([longitude, latitude]: Coordinate): L.LatLngTuple {
+  return [latitude, longitude];
+}
+
+function greatCirclePoints(origin: Coordinate, destination: Coordinate, steps = 64) {
+  const toVector = ([longitude, latitude]: Coordinate) => {
+    const longitudeRadians = longitude * (Math.PI / 180);
+    const latitudeRadians = latitude * (Math.PI / 180);
+    return [
+      Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
+      Math.cos(latitudeRadians) * Math.sin(longitudeRadians),
+      Math.sin(latitudeRadians),
+    ];
   };
-}
-
-function stationGeoJson(legs: JourneyLeg[]) {
-  const seen = new Set<string>();
-  const features = legs
-    .filter((leg) => leg.mode === "rail")
-    .flatMap((leg) => leg.stops)
-    .filter((stop) => {
-      if (seen.has(stop.place.id)) return false;
-      seen.add(stop.place.id);
-      return true;
-    })
-    .map((stop) => ({
-      type: "Feature" as const,
-      geometry: {
-        type: "Point" as const,
-        coordinates: stop.place.coordinates,
-      },
-      properties: {
-        name: stop.place.name,
-      },
-    }));
-
-  return { type: "FeatureCollection" as const, features };
-}
-
-function flightLayers(legs: JourneyLeg[]) {
-  const flights = legs.filter((leg) => leg.mode === "air");
-
-  return [
-    new ArcLayer<JourneyLeg>({
-      id: "flight-arcs",
-      data: flights,
-      getSourcePosition: (leg) => leg.origin.coordinates,
-      getTargetPosition: (leg) => leg.destination.coordinates,
-      getSourceColor: [214, 133, 62, 210],
-      getTargetColor: [214, 133, 62, 210],
-      getWidth: 3,
-      getHeight: 0.25,
-      greatCircle: true,
-      pickable: true,
-    }),
+  const fromVector = ([x, y, z]: number[]): L.LatLngTuple => [
+    Math.atan2(z, Math.sqrt(x * x + y * y)) * (180 / Math.PI),
+    Math.atan2(y, x) * (180 / Math.PI),
   ];
+
+  const start = toVector(origin);
+  const end = toVector(destination);
+  const dot = Math.min(1, Math.max(-1, start.reduce((sum, value, index) => sum + value * end[index], 0)));
+  const angle = Math.acos(dot);
+
+  if (angle < 0.000001) return [toLatLng(origin), toLatLng(destination)];
+
+  const angleSine = Math.sin(angle);
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const progress = index / steps;
+    const startWeight = Math.sin((1 - progress) * angle) / angleSine;
+    const endWeight = Math.sin(progress * angle) / angleSine;
+    return fromVector(start.map((value, vectorIndex) =>
+      value * startWeight + end[vectorIndex] * endWeight,
+    ));
+  });
 }
 
-function fitToJourneys(map: MapLibreMap, legs: JourneyLeg[], duration = 0) {
-  const bounds = new maplibregl.LngLatBounds();
+function popupFor(leg: JourneyLeg) {
+  const content = document.createElement("div");
+  content.className = "map-popup";
+
+  const number = document.createElement("strong");
+  number.textContent = leg.number;
+  const route = document.createElement("span");
+  route.textContent = `${leg.origin.city} → ${leg.destination.city}`;
+  const distance = document.createElement("small");
+  distance.textContent = `${leg.distanceKm.toLocaleString("en-GB")} km · ${leg.travelDate}`;
+  content.append(number, route, distance);
+
+  return content;
+}
+
+function renderJourneys(map: L.Map, journeyLayer: L.FeatureGroup, legs: JourneyLeg[]) {
+  journeyLayer.clearLayers();
+  const renderedPlaces = new Set<string>();
 
   for (const leg of legs) {
-    for (const coordinate of leg.geometry) bounds.extend(coordinate);
+    const color = leg.mode === "rail" ? "#167b64" : "#d6853e";
+    const points = leg.mode === "air"
+      ? greatCirclePoints(leg.origin.coordinates, leg.destination.coordinates)
+      : leg.geometry.map(toLatLng);
+
+    L.polyline(points, {
+      color: leg.mode === "rail" ? "#173e35" : "#8f5b2d",
+      weight: leg.mode === "rail" ? 8 : 6,
+      opacity: 0.12,
+      interactive: false,
+    }).addTo(journeyLayer);
+
+    L.polyline(points, {
+      color,
+      weight: leg.mode === "rail" ? 3.5 : 3,
+      opacity: 0.94,
+      dashArray: leg.mode === "air" ? "8 8" : undefined,
+      lineCap: "round",
+      lineJoin: "round",
+    })
+      .bindPopup(popupFor(leg), { closeButton: false, offset: [0, -4] })
+      .addTo(journeyLayer);
+
+    const places = leg.mode === "rail"
+      ? leg.stops.map((stop) => stop.place)
+      : [leg.origin, leg.destination];
+
+    for (const place of places) {
+      if (renderedPlaces.has(place.id)) continue;
+      renderedPlaces.add(place.id);
+
+      L.circleMarker(toLatLng(place.coordinates), {
+        radius: 4.5,
+        color,
+        weight: 2,
+        fillColor: "#fbfaf6",
+        fillOpacity: 1,
+      })
+        .bindTooltip(place.name, { direction: "top", offset: [0, -6] })
+        .addTo(journeyLayer);
+    }
   }
 
-  if (!bounds.isEmpty()) {
-    map.fitBounds(bounds, {
-      padding: { top: 80, right: 60, bottom: 72, left: 60 },
-      duration,
-      maxZoom: 5.7,
-    });
+  if (legs.length > 0) {
+    const bounds = journeyLayer.getBounds();
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, {
+        paddingTopLeft: [58, 68],
+        paddingBottomRight: [58, 68],
+        maxZoom: 7,
+        animate: true,
+        duration: 0.5,
+      });
+    }
+  } else {
+    map.setView(EUROPE_CENTER, 4, { animate: false });
   }
-}
-
-function StaticMapFallback({ legs }: { legs: JourneyLeg[] }) {
-  const toPoint = ([longitude, latitude]: [number, number]) => ({
-    x: ((longitude + 2) / 22) * 1000,
-    y: ((56 - latitude) / 15) * 600,
-  });
-
-  return (
-    <div className="static-map" role="img" aria-label="Static map of the visible journeys">
-      <svg viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice">
-        <g className="static-map__grid">
-          {[100, 250, 400, 550, 700, 850].map((x) => <line key={`x-${x}`} x1={x} y1="0" x2={x} y2="600" />)}
-          {[100, 220, 340, 460].map((y) => <line key={`y-${y}`} x1="0" y1={y} x2="1000" y2={y} />)}
-        </g>
-        {legs.map((leg) => (
-          <polyline
-            key={leg.id}
-            className={`static-map__route static-map__route--${leg.mode}`}
-            points={leg.geometry.map((coordinate) => {
-              const point = toPoint(coordinate);
-              return `${point.x},${point.y}`;
-            }).join(" ")}
-          />
-        ))}
-        {legs.flatMap((leg) => leg.mode === "rail" ? leg.stops : []).map((stop) => {
-          const point = toPoint(stop.place.coordinates);
-          return <circle key={`${stop.place.id}-${stop.sequence}`} cx={point.x} cy={point.y} r="4" />;
-        })}
-      </svg>
-      <div className="static-map__notice">Interactive map needs WebGL 2</div>
-    </div>
-  );
 }
 
 export default function JourneyMap({ legs }: { legs: JourneyLeg[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<MapLibreMap | null>(null);
-  const overlayRef = useRef<MapboxOverlay | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const journeyLayerRef = useRef<L.FeatureGroup | null>(null);
   const legsRef = useRef(legs);
-  const [mapUnavailable, setMapUnavailable] = useState(false);
 
   useEffect(() => {
     legsRef.current = legs;
-
-    const map = mapRef.current;
-    if (!map?.isStyleLoaded()) return;
-
-    (map.getSource("rail-journeys") as GeoJSONSource | undefined)?.setData(
-      railGeoJson(legs),
-    );
-    (map.getSource("rail-stations") as GeoJSONSource | undefined)?.setData(
-      stationGeoJson(legs),
-    );
-    overlayRef.current?.setProps({ layers: flightLayers(legs) });
-    fitToJourneys(map, legs, 450);
+    if (mapRef.current && journeyLayerRef.current) {
+      renderJourneys(mapRef.current, journeyLayerRef.current, legs);
+    }
   }, [legs]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    let map: MapLibreMap;
+    const map = L.map(containerRef.current, {
+      center: EUROPE_CENTER,
+      zoom: 4,
+      minZoom: 2,
+      maxZoom: 18,
+      zoomControl: false,
+      attributionControl: true,
+      preferCanvas: true,
+    });
 
-    try {
-      map = new maplibregl.Map({
-        container: containerRef.current,
-        style: MAP_STYLE,
-        center: [8.8, 49.7],
-        zoom: 4.15,
-        minZoom: 2.5,
-        maxZoom: 13,
-        attributionControl: false,
-        cooperativeGestures: true,
-      });
-    } catch {
-      queueMicrotask(() => setMapUnavailable(true));
-      return;
-    }
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      crossOrigin: true,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
 
-    if (!map.getCanvas().getContext("webgl2")) {
-      try {
-        map.remove();
-      } catch {
-        // The context never initialized, so MapLibre may have nothing to remove.
-      }
-      queueMicrotask(() => setMapUnavailable(true));
-      return;
-    }
-
+    const journeyLayer = L.featureGroup().addTo(map);
     mapRef.current = map;
-    map.addControl(
-      new maplibregl.NavigationControl({ showCompass: false }),
-      "bottom-right",
-    );
-    map.addControl(
-      new maplibregl.AttributionControl({ compact: true }),
-      "bottom-left",
-    );
+    journeyLayerRef.current = journeyLayer;
+    renderJourneys(map, journeyLayer, legsRef.current);
 
-    map.on("load", () => {
-      map.addSource("rail-journeys", {
-        type: "geojson",
-        data: railGeoJson(legsRef.current),
-      });
-
-      map.addLayer({
-        id: "rail-shadow",
-        type: "line",
-        source: "rail-journeys",
-        paint: {
-          "line-color": "#173e35",
-          "line-opacity": 0.15,
-          "line-width": 7,
-          "line-blur": 4,
-        },
-      });
-
-      map.addLayer({
-        id: "rail-lines",
-        type: "line",
-        source: "rail-journeys",
-        paint: {
-          "line-color": "#167b64",
-          "line-width": ["interpolate", ["linear"], ["zoom"], 3, 2.2, 8, 4.5],
-          "line-opacity": 0.92,
-        },
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-        },
-      });
-
-      map.addSource("rail-stations", {
-        type: "geojson",
-        data: stationGeoJson(legsRef.current),
-      });
-
-      map.addLayer({
-        id: "station-dots",
-        type: "circle",
-        source: "rail-stations",
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 2.8, 8, 5.5],
-          "circle-color": "#f8f5ed",
-          "circle-stroke-color": "#126a57",
-          "circle-stroke-width": 2,
-        },
-      });
-
-      const overlay = new MapboxOverlay({
-        interleaved: true,
-        layers: flightLayers(legsRef.current),
-      });
-      overlayRef.current = overlay;
-      map.addControl(overlay as unknown as IControl);
-
-      fitToJourneys(map, legsRef.current);
-    });
-
-    map.on("mouseenter", "rail-lines", () => {
-      map.getCanvas().style.cursor = "pointer";
-    });
-    map.on("mouseleave", "rail-lines", () => {
-      map.getCanvas().style.cursor = "";
-    });
-    map.on("click", "rail-lines", (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
-      if (!feature?.properties) return;
-
-      const content = document.createElement("div");
-      content.className = "map-popup";
-
-      const number = document.createElement("strong");
-      number.textContent = String(feature.properties.number);
-      const route = document.createElement("span");
-      route.textContent = `${feature.properties.origin} → ${feature.properties.destination}`;
-      const distance = document.createElement("small");
-      distance.textContent = `${Number(feature.properties.distanceKm).toLocaleString("en-GB")} km`;
-      content.append(number, route, distance);
-
-      new maplibregl.Popup({ offset: 14, closeButton: false })
-        .setLngLat(event.lngLat)
-        .setDOMContent(content)
-        .addTo(map);
-    });
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ pan: false }));
+    resizeObserver.observe(containerRef.current);
+    requestAnimationFrame(() => map.invalidateSize({ pan: false }));
 
     return () => {
-      overlayRef.current = null;
+      resizeObserver.disconnect();
+      journeyLayerRef.current = null;
       mapRef.current = null;
-      try {
-        map.remove();
-      } catch {
-        // A browser can lose its WebGL context between construction and cleanup.
-      }
+      map.remove();
     };
   }, []);
 
-  if (mapUnavailable) return <StaticMapFallback legs={legs} />;
   return <div ref={containerRef} className="journey-map" />;
 }

@@ -1,43 +1,32 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowRight,
-  CalendarDays,
   Check,
-  ChevronRight,
   CircleGauge,
   Globe2,
+  HardDrive,
   MapPin,
   Plane,
   Plus,
   Route,
-  Search,
   TrainFront,
+  Trash2,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { MapShell } from "@/components/map-shell";
-import type {
-  JourneyLeg,
-  Place,
-  TravelMode,
-  TravelStats,
-  TripCandidate,
-} from "@/lib/domain";
+import type { JourneyLeg, Place, TravelMode, TravelStats } from "@/lib/domain";
 
 type ModeFilter = "all" | TravelMode;
 
-const monthLabels: Record<number, string> = {
-  6: "June",
-  7: "July",
-  8: "August",
-};
+const STORAGE_KEY = "rail-log:journeys:v1";
 
-function formatDate(value: string, compact = false) {
+function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
-    month: compact ? "short" : "long",
-    year: compact ? undefined : "numeric",
+    month: "short",
+    year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${value}T12:00:00.000Z`));
 }
@@ -86,87 +75,134 @@ function StatCard({
   );
 }
 
+function PlaceCombobox({
+  label,
+  kind,
+  value,
+  onChange,
+  excludeId,
+}: {
+  label: string;
+  kind: Place["kind"];
+  value: Place | null;
+  onChange: (place: Place | null) => void;
+  excludeId?: string;
+}) {
+  const listId = useId();
+  const [query, setQuery] = useState(value?.name ?? "");
+  const [results, setResults] = useState<Place[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    if (trimmedQuery.length < 2 || (value && trimmedQuery === value.name)) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/places/search?kind=${kind}&q=${encodeURIComponent(trimmedQuery)}`, {
+          signal: controller.signal,
+        });
+        const data = (await response.json()) as { places?: Place[] };
+        setResults((data.places ?? []).filter((place) => place.id !== excludeId));
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setResults([]);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [excludeId, kind, query, value]);
+
+  function selectPlace(place: Place) {
+    setQuery(place.name);
+    setResults([]);
+    setOpen(false);
+    onChange(place);
+  }
+
+  return (
+    <label className="station-search">
+      <span>{label}</span>
+      <div className="station-search__control">
+        <MapPin size={16} />
+        <input
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+            onChange(null);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 140)}
+          placeholder={kind === "station" ? "Search any European station" : "Search airport, city or IATA code"}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open && query.trim().length >= 2}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          required
+        />
+        {value && <Check className="station-search__check" size={15} />}
+      </div>
+
+      {open && query.trim().length >= 2 && !value && (
+        <div className="station-results" id={listId} role="listbox">
+          {loading ? (
+            <p>{kind === "station" ? "Searching 52,000+ stations…" : "Searching 3,000+ airports…"}</p>
+          ) : results.length ? (
+            results.map((place) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected="false"
+                key={place.id}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectPlace(place)}
+              >
+                <span>{kind === "station" ? <TrainFront size={15} /> : <Plane size={15} />}</span>
+                <div>
+                  <strong>{place.name}</strong>
+                  <small>{place.city !== place.name ? `${place.city} · ` : ""}{place.country} · {place.code}</small>
+                </div>
+              </button>
+            ))
+          ) : (
+            <p>{kind === "station" ? "No matching station. Try a nearby city or UIC code." : "No matching airport. Try its city, name, IATA or ICAO code."}</p>
+          )}
+        </div>
+      )}
+    </label>
+  );
+}
+
 function AddJourney({
-  places,
   onAdd,
 }: {
-  places: Place[];
   onAdd: (leg: JourneyLeg) => void;
 }) {
-  const [entryMode, setEntryMode] = useState<"lookup" | "manual">("lookup");
-  const [number, setNumber] = useState("ICE 573");
-  const [date, setDate] = useState("2026-07-14");
-  const [manualMode, setManualMode] = useState<TravelMode>("rail");
+  const [number, setNumber] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mode, setMode] = useState<TravelMode>("rail");
   const [operator, setOperator] = useState("");
-  const [originId, setOriginId] = useState("hamburg");
-  const [destinationId, setDestinationId] = useState("basel");
-  const [candidate, setCandidate] = useState<TripCandidate | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "found" | "empty" | "added" | "error">("idle");
+  const [origin, setOrigin] = useState<Place | null>(null);
+  const [destination, setDestination] = useState<Place | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "added" | "error">("idle");
 
-  const eligiblePlaces = places.filter((place) => place.kind === (manualMode === "rail" ? "station" : "airport"));
-
-  function switchEntryMode(mode: "lookup" | "manual") {
-    setEntryMode(mode);
-    setCandidate(null);
+  function changeMode(nextMode: TravelMode) {
+    setMode(nextMode);
+    setOrigin(null);
+    setDestination(null);
     setStatus("idle");
-
-    if (mode === "manual" && manualMode === "air") {
-      const airports = places.filter((place) => place.kind === "airport");
-      setOriginId(airports[0]?.id ?? "");
-      setDestinationId(airports[1]?.id ?? "");
-    }
   }
 
-  function changeManualMode(mode: TravelMode) {
-    const matchingPlaces = places.filter((place) => place.kind === (mode === "rail" ? "station" : "airport"));
-    setManualMode(mode);
-    setOriginId(matchingPlaces[0]?.id ?? "");
-    setDestinationId(matchingPlaces[1]?.id ?? "");
-  }
-
-  async function submitLookup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus("loading");
-    setCandidate(null);
-
-    try {
-      const query = new URLSearchParams({ number, date });
-      const response = await fetch(`/api/lookup?${query}`);
-      const data = (await response.json()) as {
-        candidates?: TripCandidate[];
-        error?: string;
-      };
-
-      if (!response.ok) throw new Error(data.error || "Lookup failed");
-      const firstCandidate = data.candidates?.[0] ?? null;
-      setCandidate(firstCandidate);
-      setStatus(firstCandidate ? "found" : "empty");
-    } catch {
-      setStatus("error");
-    }
-  }
-
-  async function confirmCandidate() {
-    if (!candidate) return;
-    setStatus("loading");
-
-    try {
-      const response = await fetch("/api/legs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tripIndexId: candidate.tripIndexId }),
-      });
-      const data = (await response.json()) as { leg?: JourneyLeg };
-      if (!response.ok || !data.leg) throw new Error("Could not add journey");
-      onAdd(data.leg);
-      setStatus("added");
-      setCandidate(null);
-    } catch {
-      setStatus("error");
-    }
-  }
-
-  async function submitManual(event: FormEvent<HTMLFormElement>) {
+  async function submitJourney(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus("loading");
 
@@ -175,17 +211,22 @@ function AddJourney({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: manualMode,
+          mode,
           number,
           travelDate: date,
           operator,
-          originId,
-          destinationId,
+          origin,
+          destination,
         }),
       });
       const data = (await response.json()) as { leg?: JourneyLeg };
       if (!response.ok || !data.leg) throw new Error("Could not add journey");
+
       onAdd(data.leg);
+      setNumber("");
+      setOperator("");
+      setOrigin(null);
+      setDestination(null);
       setStatus("added");
     } catch {
       setStatus("error");
@@ -196,204 +237,222 @@ function AddJourney({
     <section className="add-card" id="add-journey" aria-labelledby="add-journey-title">
       <div className="add-card__heading">
         <span className="section-kicker">New entry</span>
-        <h2 id="add-journey-title">Add a journey</h2>
-        <p>Find it in the timetable archive or enter it yourself.</p>
+        <h2 id="add-journey-title">Add your journey</h2>
+        <p>Choose the endpoints and it will appear on your map.</p>
       </div>
 
-      <div className="entry-tabs" role="tablist" aria-label="Journey entry method">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={entryMode === "lookup"}
-          className={entryMode === "lookup" ? "is-active" : ""}
-          onClick={() => switchEntryMode("lookup")}
-        >
-          <Search size={15} /> Lookup
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={entryMode === "manual"}
-          className={entryMode === "manual" ? "is-active" : ""}
-          onClick={() => switchEntryMode("manual")}
-        >
-          <Plus size={15} /> Manual
-        </button>
-      </div>
+      <form className="journey-form journey-form--manual" onSubmit={submitJourney}>
+        <div className="mode-choice" aria-label="Journey mode">
+          <button
+            className={mode === "rail" ? "is-active" : ""}
+            type="button"
+            onClick={() => changeMode("rail")}
+          >
+            <TrainFront size={16} /> Rail
+          </button>
+          <button
+            className={mode === "air" ? "is-active" : ""}
+            type="button"
+            onClick={() => changeMode("air")}
+          >
+            <Plane size={16} /> Air
+          </button>
+        </div>
 
-      {entryMode === "lookup" ? (
-        <form className="journey-form" onSubmit={submitLookup}>
+        <div className="form-row">
           <label>
-            <span>Train number</span>
-            <div className="field-with-icon">
-              <TrainFront size={17} />
-              <input
-                value={number}
-                onChange={(event) => setNumber(event.target.value)}
-                placeholder="e.g. ICE 573"
-                autoComplete="off"
-                required
-              />
-            </div>
+            <span>Train or flight number</span>
+            <input
+              value={number}
+              onChange={(event) => setNumber(event.target.value)}
+              placeholder={mode === "rail" ? "e.g. ICE 573" : "e.g. KL 1776"}
+              autoComplete="off"
+              required
+            />
           </label>
           <label>
             <span>Travel date</span>
-            <div className="field-with-icon">
-              <CalendarDays size={17} />
-              <input
-                type="date"
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-                required
-              />
-            </div>
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              required
+            />
           </label>
-          <button className="primary-button primary-button--wide" disabled={status === "loading"}>
-            {status === "loading" ? "Searching…" : "Find journey"}
-            {status !== "loading" && <ArrowRight size={17} />}
-          </button>
-        </form>
-      ) : (
-        <form className="journey-form" onSubmit={submitManual}>
-          <div className="mode-choice" aria-label="Journey mode">
-            <button
-              className={manualMode === "rail" ? "is-active" : ""}
-              type="button"
-              onClick={() => changeManualMode("rail")}
-            >
-              <TrainFront size={16} /> Rail
-            </button>
-            <button
-              className={manualMode === "air" ? "is-active" : ""}
-              type="button"
-              onClick={() => changeManualMode("air")}
-            >
-              <Plane size={16} /> Air
-            </button>
-          </div>
-          <div className="form-row">
-            <label>
-              <span>Number</span>
-              <input value={number} onChange={(event) => setNumber(event.target.value)} required />
-            </label>
-            <label>
-              <span>Date</span>
-              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
-            </label>
-          </div>
-          <label>
-            <span>Operator <small>optional</small></span>
-            <input value={operator} onChange={(event) => setOperator(event.target.value)} placeholder="e.g. Deutsche Bahn" />
-          </label>
-          <div className="form-row">
-            <label>
-              <span>From</span>
-              <select value={originId} onChange={(event) => setOriginId(event.target.value)}>
-                {eligiblePlaces.map((place) => <option key={place.id} value={place.id}>{place.city}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>To</span>
-              <select value={destinationId} onChange={(event) => setDestinationId(event.target.value)}>
-                {eligiblePlaces.map((place) => <option key={place.id} value={place.id}>{place.city}</option>)}
-              </select>
-            </label>
-          </div>
-          <button className="primary-button primary-button--wide" disabled={status === "loading"}>
-            {status === "loading" ? "Adding…" : "Add to journal"}
-            {status !== "loading" && <ArrowRight size={17} />}
-          </button>
-        </form>
-      )}
+        </div>
+
+        <label>
+          <span>Operator <small>optional</small></span>
+          <input
+            value={operator}
+            onChange={(event) => setOperator(event.target.value)}
+            placeholder={mode === "rail" ? "e.g. Deutsche Bahn" : "e.g. KLM"}
+          />
+        </label>
+
+        <div className="form-row station-search-row">
+          <PlaceCombobox
+            label="From"
+            kind={mode === "rail" ? "station" : "airport"}
+            value={origin}
+            onChange={setOrigin}
+            excludeId={destination?.id}
+          />
+          <PlaceCombobox
+            label="To"
+            kind={mode === "rail" ? "station" : "airport"}
+            value={destination}
+            onChange={setDestination}
+            excludeId={origin?.id}
+          />
+        </div>
+
+        <button
+          className="primary-button primary-button--wide"
+          disabled={status === "loading" || !origin || !destination}
+        >
+          {status === "loading" ? "Adding…" : "Add to journal"}
+          {status !== "loading" && <ArrowRight size={17} />}
+        </button>
+      </form>
 
       <div className="form-feedback" aria-live="polite">
-        {status === "found" && candidate && (
-          <div className="candidate-card">
-            <div className="candidate-card__icon"><TrainFront size={18} /></div>
-            <div className="candidate-card__body">
-              <span>{candidate.number} · {formatDate(candidate.travelDate, true)}</span>
-              <strong>{candidate.origin.city} <ArrowRight size={14} /> {candidate.destination.city}</strong>
-              <small>{candidate.stops.length} stops · {candidate.distanceKm.toLocaleString("en-GB")} km</small>
-            </div>
-            <button type="button" onClick={confirmCandidate} aria-label={`Add ${candidate.number} to journal`}>
-              <Plus size={17} />
-            </button>
-          </div>
+        {status === "added" && (
+          <p className="feedback-note feedback-note--success">
+            <Check size={15} /> Saved to your journal and map.
+          </p>
         )}
-        {status === "empty" && (
-          <p className="feedback-note">No timetable match. <button type="button" onClick={() => switchEntryMode("manual")}>Add it manually</button>.</p>
+        {status === "error" && (
+          <p className="feedback-note feedback-note--error">
+            Choose two different places and try again.
+          </p>
         )}
-        {status === "added" && <p className="feedback-note feedback-note--success"><Check size={15} /> Added to this demo journal.</p>}
-        {status === "error" && <p className="feedback-note feedback-note--error">Something went wrong. Please try again.</p>}
       </div>
 
-      <p className="demo-note"><span /> Demo mode · connect Postgres to persist entries</p>
+      <p className="demo-note"><HardDrive size={12} /> Stored locally in this browser</p>
     </section>
   );
 }
 
-function JourneyList({ legs }: { legs: JourneyLeg[] }) {
-  const recent = [...legs].sort((a, b) => b.travelDate.localeCompare(a.travelDate)).slice(0, 5);
+function JourneyList({
+  legs,
+  onRemove,
+}: {
+  legs: JourneyLeg[];
+  onRemove: (id: string) => void;
+}) {
+  const journeys = [...legs].sort((a, b) => b.travelDate.localeCompare(a.travelDate));
 
   return (
     <section className="journal-card" id="journal" aria-labelledby="journal-title">
       <div className="card-heading-row">
         <div>
           <span className="section-kicker">Journal</span>
-          <h2 id="journal-title">Recent journeys</h2>
+          <h2 id="journal-title">Your journeys</h2>
         </div>
-        <button className="icon-button" type="button" title="Open all journeys" aria-label="Open all journeys">
-          <ChevronRight size={19} />
-        </button>
+        <span className="journey-total">{journeys.length}</span>
       </div>
 
-      <div className="journey-list">
-        {recent.map((leg) => (
-          <article className="journey-row" key={leg.id}>
-            <span className={`journey-row__mode journey-row__mode--${leg.mode}`}>
-              {leg.mode === "rail" ? <TrainFront size={17} /> : <Plane size={17} />}
-            </span>
-            <div className="journey-row__main">
-              <div>
-                <strong>{leg.origin.city}</strong>
-                <span className="route-line" aria-hidden="true"><i /></span>
-                <strong>{leg.destination.city}</strong>
+      {journeys.length === 0 ? (
+        <div className="journal-empty">
+          <Route size={22} />
+          <strong>No journeys yet</strong>
+          <p>Your first entry will appear here.</p>
+        </div>
+      ) : (
+        <div className="journey-list">
+          {journeys.map((leg) => (
+            <article className="journey-row" key={leg.id}>
+              <span className={`journey-row__mode journey-row__mode--${leg.mode}`}>
+                {leg.mode === "rail" ? <TrainFront size={17} /> : <Plane size={17} />}
+              </span>
+              <div className="journey-row__main">
+                <div>
+                  <strong>{leg.origin.city}</strong>
+                  <span className="route-line" aria-hidden="true"><i /></span>
+                  <strong>{leg.destination.city}</strong>
+                </div>
+                <p>{leg.number} · {leg.operator}</p>
               </div>
-              <p>{leg.number} · {leg.operator}</p>
-            </div>
-            <div className="journey-row__meta">
-              <time dateTime={leg.travelDate}>{formatDate(leg.travelDate, true)}</time>
-              <span>{leg.distanceKm ? `${leg.distanceKm.toLocaleString("en-GB")} km` : "—"}</span>
-            </div>
-          </article>
-        ))}
-      </div>
+              <div className="journey-row__meta">
+                <time dateTime={leg.travelDate}>{formatDate(leg.travelDate)}</time>
+                <span>{leg.distanceKm.toLocaleString("en-GB")} km</span>
+              </div>
+              <button
+                className="journey-row__delete"
+                type="button"
+                title="Delete journey"
+                aria-label={`Delete ${leg.number} from ${leg.origin.city} to ${leg.destination.city}`}
+                onClick={() => onRemove(leg.id)}
+              >
+                <Trash2 size={15} />
+              </button>
+            </article>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 export function TravelDashboard({
   initialLegs,
-  places,
 }: {
   initialLegs: JourneyLeg[];
-  places: Place[];
 }) {
   const [legs, setLegs] = useState(initialLegs);
   const [mode, setMode] = useState<ModeFilter>("all");
-  const [throughMonth, setThroughMonth] = useState(8);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as unknown;
+      if (!Array.isArray(parsed)) return;
+
+      const validLegs = parsed.filter(
+        (leg): leg is JourneyLeg =>
+          typeof leg === "object" &&
+          leg !== null &&
+          "id" in leg &&
+          "origin" in leg &&
+          "destination" in leg &&
+          "geometry" in leg,
+      );
+      queueMicrotask(() => setLegs(validLegs));
+    } catch {
+      // Ignore malformed or unavailable browser storage and start with an empty log.
+    }
+  }, []);
 
   const visibleLegs = useMemo(
-    () => legs.filter((leg) => {
-      const legMonth = Number(leg.travelDate.slice(5, 7));
-      return legMonth <= throughMonth && (mode === "all" || leg.mode === mode);
-    }),
-    [legs, mode, throughMonth],
+    () => legs.filter((leg) => mode === "all" || leg.mode === mode),
+    [legs, mode],
   );
-  const stats = useMemo(() => statsFor(visibleLegs), [visibleLegs]);
+  const stats = useMemo(() => statsFor(legs), [legs]);
+
+  function saveLegs(nextLegs: JourneyLeg[]) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextLegs));
+    } catch {
+      // The in-memory journal still works if storage is unavailable.
+    }
+  }
 
   function addLeg(leg: JourneyLeg) {
-    setLegs((current) => current.some((item) => item.id === leg.id) ? current : [...current, leg]);
+    setLegs((current) => {
+      const nextLegs = current.some((item) => item.id === leg.id) ? current : [...current, leg];
+      saveLegs(nextLegs);
+      return nextLegs;
+    });
+  }
+
+  function removeLeg(id: string) {
+    setLegs((current) => {
+      const nextLegs = current.filter((leg) => leg.id !== id);
+      saveLegs(nextLegs);
+      return nextLegs;
+    });
   }
 
   function jumpToAddJourney() {
@@ -413,7 +472,7 @@ export function TravelDashboard({
           <a href="#journal">Journal</a>
         </nav>
         <div className="topbar__actions">
-          <span className="demo-pill"><i /> Demo journal</span>
+          <span className="demo-pill"><i /> Local journal</span>
           <button type="button" className="primary-button primary-button--compact" onClick={jumpToAddJourney}>
             <Plus size={16} /> Add journey
           </button>
@@ -423,18 +482,18 @@ export function TravelDashboard({
       <main id="overview">
         <section className="hero-section">
           <div>
-            <span className="eyebrow"><span /> Summer 2026 · Europe</span>
-            <h1>Your summer,<br /><em>drawn in lines.</em></h1>
+            <span className="eyebrow"><span /> Personal travel journal</span>
+            <h1>Every journey,<br /><em>drawn in lines.</em></h1>
           </div>
           <p>
-            A living record of every platform, border, and long way home —
-            from the first departure to the last arrival.
+            Keep one private record of the trains and flights that carried you
+            across Europe — one line at a time.
           </p>
         </section>
 
         <section className="stats-grid" aria-label="Travel statistics">
           <StatCard icon={<Route size={20} />} label="Journeys" value={String(stats.journeys)} detail={`${stats.railJourneys} rail · ${stats.airJourneys} air`} />
-          <StatCard icon={<CircleGauge size={20} />} label="Distance" value={`${stats.distanceKm.toLocaleString("en-GB")} km`} detail="Across the continent" />
+          <StatCard icon={<CircleGauge size={20} />} label="Distance" value={`${stats.distanceKm.toLocaleString("en-GB")} km`} detail="Approximate distance" />
           <StatCard icon={<Globe2 size={20} />} label="Countries" value={String(stats.countries)} detail="Borders crossed" />
           <StatCard icon={<MapPin size={20} />} label="Places" value={String(stats.places)} detail="Stations & airports" />
         </section>
@@ -464,43 +523,39 @@ export function TravelDashboard({
 
           <div className="map-stage">
             <MapShell legs={visibleLegs} />
-            <div className="map-legend">
-              <span><i className="map-legend__rail" /> Rail</span>
-              <span><i className="map-legend__air" /> Air</span>
-            </div>
-            <div className="map-count"><strong>{visibleLegs.length}</strong> journeys shown</div>
+            {legs.length === 0 ? (
+              <div className="map-empty-state">
+                <span><Route size={23} /></span>
+                <strong>Your map is ready</strong>
+                <p>Add your first journey to draw a line across it.</p>
+                <button type="button" onClick={jumpToAddJourney}>Add a journey <ArrowRight size={14} /></button>
+              </div>
+            ) : (
+              <>
+                <div className="map-legend">
+                  <span><i className="map-legend__rail" /> Rail</span>
+                  <span><i className="map-legend__air" /> Air</span>
+                </div>
+                <div className="map-count"><strong>{visibleLegs.length}</strong> journeys shown</div>
+              </>
+            )}
           </div>
 
-          <div className="timeline-control">
-            <div className="timeline-control__labels">
-              <span><CalendarDays size={15} /> Summer timeline</span>
-              <strong>Through {monthLabels[throughMonth]} 2026</strong>
-            </div>
-            <div className="timeline-slider-wrap">
-              <input
-                aria-label="Show journeys through month"
-                type="range"
-                min="6"
-                max="8"
-                step="1"
-                value={throughMonth}
-                onChange={(event) => setThroughMonth(Number(event.target.value))}
-                style={{ "--timeline-progress": `${((throughMonth - 6) / 2) * 100}%` } as CSSProperties}
-              />
-              <div className="timeline-months" aria-hidden="true"><span>Jun</span><span>Jul</span><span>Aug</span></div>
-            </div>
+          <div className="map-storage-note">
+            <span><HardDrive size={15} /> Private by default</span>
+            <strong>Your entries stay in this browser.</strong>
           </div>
         </section>
 
         <div className="lower-grid">
-          <AddJourney places={places} onAdd={addLeg} />
-          <JourneyList legs={visibleLegs} />
+          <AddJourney onAdd={addLeg} />
+          <JourneyList legs={legs} onRemove={removeLeg} />
         </div>
 
         <footer className="site-footer">
           <a className="brand brand--small" href="#overview"><BrandMark /><span>rail log</span></a>
           <p>Every journey leaves a line.</p>
-          <span>Built around GTFS · MapLibre · PostGIS</span>
+          <span>Places: <a href="https://github.com/trainline-eu/stations" target="_blank" rel="noreferrer">Trainline EU</a> · <a href="https://ourairports.com/data/" target="_blank" rel="noreferrer">OurAirports</a></span>
         </footer>
       </main>
     </div>

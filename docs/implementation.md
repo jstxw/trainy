@@ -5,9 +5,12 @@ The running application is the first vertical slice of the architecture in
 
 ## Boundaries
 
-- `src/lib/sample-data.ts` stands in for both the regenerated trip index and the
-  durable personal log. It keeps the application useful without credentials and
-  is deliberately labelled as demo data in the interface.
+- `data/stations.json` is a generated, compact index of 52,241 suggestable
+  European stations from the Trainline EU ODbL dataset. `GET /api/places/search`
+  searches it without shipping the whole catalog to the browser.
+- `data/airports.json` is the matching search index for 3,283 scheduled medium
+  and large airports worldwide, generated from the public-domain OurAirports
+  dataset. There are no seeded journeys; the personal log starts empty.
 - `src/lib/travel-log.ts` is the read boundary used by pages and route handlers.
   Replace its sample implementation with a Postgres repository without changing
   the UI contracts.
@@ -17,9 +20,13 @@ The running application is the first vertical slice of the architecture in
   seam and personal log.
 - `src/components/journey-map.tsx` renders rail as MapLibre line layers and air as
   deck.gl great-circle arcs over OpenFreeMap's muted Positron style.
+- Until Postgres is connected, confirmed manual journeys are stored under
+  `rail-log:journeys:v1` in the browser's local storage.
 
 ## Next production step
 
 Connect the repository to Postgres, run the migration, and make both confirmation
 endpoints transactional. The ingestion archive and DuckDB transform stay outside
 the web process, as described in the architecture document.
+
+Refresh both place indexes with `npm run sync:places`.

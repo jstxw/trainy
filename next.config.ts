@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  outputFileTracingIncludes: {
+    "/api/places/search": ["./data/stations.json", "./data/airports.json"],
+  },
 };
 
 export default nextConfig;

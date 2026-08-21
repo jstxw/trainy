@@ -1,5 +1,4 @@
-import type { JourneyLeg, TravelMode } from "@/lib/domain";
-import { sampleTripIndex } from "@/lib/sample-data";
+import type { TravelMode } from "@/lib/domain";
 import { getLegs } from "@/lib/travel-log";
 
 export async function GET(request: Request) {
@@ -23,27 +22,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "tripIndexId is required." }, { status: 400 });
   }
 
-  const candidate = sampleTripIndex.find(
-    (trip) => trip.tripIndexId === body.tripIndexId,
-  );
-
-  if (!candidate) {
-    return Response.json({ error: "Trip candidate not found." }, { status: 404 });
-  }
-
-  const leg: JourneyLeg = {
-    ...candidate,
-    id: `demo-${candidate.tripIndexId}`,
-    source: "lookup",
-    createdAt: new Date().toISOString(),
-  };
-
   return Response.json(
     {
-      leg,
-      demo: true,
-      note: "Connect the Postgres repository to persist confirmed journeys.",
+      error: "The timetable trip index is not connected yet. Add this journey manually.",
+      tripIndexId: body.tripIndexId,
     },
-    { status: 201 },
+    { status: 501 },
   );
 }

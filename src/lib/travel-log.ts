@@ -3,23 +3,17 @@ import type {
   MapFeatureCollection,
   TravelMode,
   TravelStats,
-  TripCandidate,
 } from "@/lib/domain";
-import { sampleLegs, sampleTripIndex } from "@/lib/sample-data";
 
 export async function getLegs(mode?: TravelMode): Promise<JourneyLeg[]> {
-  return mode ? sampleLegs.filter((leg) => leg.mode === mode) : sampleLegs;
+  void mode;
+  return [];
 }
 
-export async function lookupTrips(
-  number: string,
-  date: string,
-): Promise<TripCandidate[]> {
-  const normalizedNumber = number.trim().replace(/\s+/g, " ").toUpperCase();
-
-  return sampleTripIndex.filter(
-    (trip) => trip.number.toUpperCase() === normalizedNumber && trip.travelDate === date,
-  );
+export async function lookupTrips(number: string, date: string) {
+  void number;
+  void date;
+  return [];
 }
 
 export function calculateStats(legs: JourneyLeg[]): TravelStats {
