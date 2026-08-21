@@ -47,6 +47,12 @@ export type TravelStats = {
   places: number;
   railJourneys: number;
   airJourneys: number;
+  firstTripDate?: string | null;
+  lastTripDate?: string | null;
+  busiestMonth?: {
+    month: string;
+    journeys: number;
+  } | null;
 };
 
 export type MapFeatureCollection = {
