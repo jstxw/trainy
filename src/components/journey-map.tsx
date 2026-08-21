@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArcLayer } from "@deck.gl/layers";
+import { ArcLayer, PathLayer, ScatterplotLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import * as maplibregl from "maplibre-gl";
 import {
@@ -87,7 +87,7 @@ function railFeatures(legs: JourneyLeg[]): FeatureCollection<LineString, RailPro
 }
 
 function railCoordinates(leg: JourneyLeg): Coordinate[] {
-  const coordinates = leg.geometry.filter(
+  const coordinates = (Array.isArray(leg.geometry) ? leg.geometry : []).filter(
     (coordinate): coordinate is Coordinate =>
       Array.isArray(coordinate) &&
       coordinate.length === 2 &&
@@ -103,7 +103,7 @@ function placeFeatures(legs: JourneyLeg[]): FeatureCollection<Point, PlaceProper
   const places = new Map<string, { place: Place; mode: JourneyLeg["mode"] }>();
 
   for (const leg of legs) {
-    const legPlaces = leg.mode === "rail" && leg.stops.length > 0
+    const legPlaces = leg.mode === "rail" && Array.isArray(leg.stops) && leg.stops.length > 0
       ? leg.stops.map((stop) => stop.place)
       : [leg.origin, leg.destination];
 
@@ -144,8 +144,13 @@ function showLegPopup(map: MapLibreMap, leg: JourneyLeg, coordinates: Coordinate
     .addTo(map);
 }
 
-function flightLayers(map: MapLibreMap, legs: JourneyLeg[]) {
+function journeyOverlayLayers(map: MapLibreMap, legs: JourneyLeg[]) {
   const flights = legs.filter((leg) => leg.mode === "air");
+  const railLegs = legs.filter((leg) => leg.mode === "rail");
+  const railEndpoints = railLegs.flatMap((leg) => [
+    { leg, coordinates: leg.origin.coordinates },
+    { leg, coordinates: leg.destination.coordinates },
+  ]);
 
   return [
     new ArcLayer<JourneyLeg>({
@@ -166,6 +171,53 @@ function flightLayers(map: MapLibreMap, legs: JourneyLeg[]) {
       onClick: ({ object, coordinate }) => {
         if (object && coordinate) {
           showLegPopup(map, object, [coordinate[0], coordinate[1]]);
+        }
+      },
+    }),
+    new PathLayer<JourneyLeg>({
+      id: "rail-route-shadow",
+      data: railLegs,
+      getPath: railCoordinates,
+      getColor: [23, 62, 53, 45],
+      getWidth: 10,
+      widthUnits: "pixels",
+      capRounded: true,
+      jointRounded: true,
+      pickable: false,
+    }),
+    new PathLayer<JourneyLeg>({
+      id: "rail-routes",
+      data: railLegs,
+      getPath: railCoordinates,
+      getColor: [22, 123, 100, 255],
+      getWidth: 4,
+      widthUnits: "pixels",
+      capRounded: true,
+      jointRounded: true,
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [23, 62, 53, 90],
+      onClick: ({ object, coordinate }) => {
+        if (object && coordinate) {
+          showLegPopup(map, object, [coordinate[0], coordinate[1]]);
+        }
+      },
+    }),
+    new ScatterplotLayer<{ leg: JourneyLeg; coordinates: Coordinate }>({
+      id: "rail-endpoints",
+      data: railEndpoints,
+      getPosition: ({ coordinates }) => coordinates,
+      getRadius: 5,
+      radiusUnits: "pixels",
+      getFillColor: [251, 250, 246, 255],
+      getLineColor: [22, 123, 100, 255],
+      getLineWidth: 2,
+      lineWidthUnits: "pixels",
+      stroked: true,
+      pickable: true,
+      onClick: ({ object, coordinate }) => {
+        if (object && coordinate) {
+          showLegPopup(map, object.leg, [coordinate[0], coordinate[1]]);
         }
       },
     }),
@@ -201,7 +253,7 @@ function updateJourneys(map: MapLibreMap, overlay: MapboxOverlay, legs: JourneyL
 
   (railSource as GeoJSONSource | undefined)?.setData(railFeatures(legs));
   (placeSource as GeoJSONSource | undefined)?.setData(placeFeatures(legs));
-  overlay.setProps({ layers: flightLayers(map, legs) });
+  overlay.setProps({ layers: journeyOverlayLayers(map, legs) });
   fitJourneys(map, legs);
 }
 
@@ -287,7 +339,7 @@ export default function JourneyMap({ legs }: { legs: JourneyLeg[] }) {
 
     const overlay = new MapboxOverlay({
       interleaved: false,
-      layers: flightLayers(map, []),
+      layers: journeyOverlayLayers(map, []),
     });
     mapRef.current = map;
     overlayRef.current = overlay;
