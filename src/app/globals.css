@@ -861,7 +861,8 @@ select:focus-visible {
 
 .detail-stats > div:first-child { padding-left: 0; border-left: 0; }
 .detail-stats span,
-.detail-stats strong { display: block; }
+.detail-stats strong,
+.detail-stats small { display: block; }
 
 .detail-stats span {
   margin-bottom: 5px;
@@ -879,6 +880,15 @@ select:focus-visible {
   font-weight: 500;
   text-overflow: ellipsis;
   text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.detail-stats small {
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

@@ -49,6 +49,7 @@ import {
   parseJournalBackup,
 } from "@/lib/journal-backup";
 import { calculateJourneyStats } from "@/lib/journey-stats";
+import { estimatedRailDistance } from "@/lib/journey-distance";
 
 type ModeFilter = "all" | TravelMode;
 type PanelView = "journal" | "detail" | "add" | "edit";
@@ -459,7 +460,15 @@ function JourneyDetail({
       </section>
 
       <div className="detail-stats">
-        <div><span>Distance</span><strong>{leg.distanceKm.toLocaleString("en-GB")} km</strong></div>
+        <div>
+          <span>Distance</span>
+          <strong>{leg.distanceKm.toLocaleString("en-GB")} km</strong>
+          <small>
+            {leg.mode === "rail"
+              ? `~${estimatedRailDistance(leg.distanceKm).toLocaleString("en-GB")} km by rail`
+              : "Direct great-circle"}
+          </small>
+        </div>
         <div><span>Stops</span><strong>{stops.length}</strong></div>
         <div><span>Source</span><strong>{leg.source}</strong></div>
       </div>
@@ -540,7 +549,7 @@ function JourneyJournal({
         </div>
         <div className="passport-stats" aria-label="Travel summary">
           <div><strong>{stats.journeys}</strong><span>Journeys</span></div>
-          <div><strong>{stats.distanceKm.toLocaleString("en-GB")}</strong><span>Kilometres</span></div>
+          <div><strong>{stats.distanceKm.toLocaleString("en-GB")}</strong><span>Direct km</span></div>
           <div><strong>{stats.places}</strong><span>Places</span></div>
         </div>
         <div className="passport-dates" aria-label="Travel date summary">
@@ -629,7 +638,13 @@ function JourneyJournal({
                   <strong>{leg.origin.city}</strong><i aria-hidden="true" /><strong>{leg.destination.city}</strong>
                   <small>{leg.operator || (leg.mode === "rail" ? "Rail service" : "Flight")}</small>
                 </span>
-                <span className="journey-row__meta"><time>{formatDate(leg.travelDate)}</time><small>{leg.distanceKm.toLocaleString("en-GB")} km</small></span>
+                <span className="journey-row__meta">
+                  <time>{formatDate(leg.travelDate)}</time>
+                  <small>
+                    {leg.distanceKm.toLocaleString("en-GB")} direct
+                    {leg.mode === "rail" && ` · ~${estimatedRailDistance(leg.distanceKm).toLocaleString("en-GB")} rail`}
+                  </small>
+                </span>
                 <ChevronRight className="journey-row__chevron" size={16} aria-hidden="true" />
               </button>
             ))}
