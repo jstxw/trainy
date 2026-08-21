@@ -31,9 +31,11 @@ The running application is the first vertical slice of the architecture in
 
 ## Next production step
 
-Configure Supabase, run the migration and `db/import-places.sql`, then verify the
-first-load localStorage migration against a non-production project. The ingestion
-archive and DuckDB transform stay outside the web process, as described in the
-architecture document.
+For a private deployment, add access control before configuring the server-side
+Supabase service role, then verify the first-load localStorage migration against
+a non-production project. The next data milestone is an offline DuckDB transform
+of the archived Swiss GTFS snapshot into rail trips, stops, and `shapes.txt`
+geometry. It stays outside the web process, as described in the architecture
+document.
 
 Refresh both place indexes with `npm run sync:places`.
