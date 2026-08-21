@@ -1,3 +1,5 @@
+begin;
+
 create temp table places_raw (
   kind text,
   source text,
@@ -37,3 +39,5 @@ on conflict (source, source_id) do update set
   iata = excluded.iata,
   icao = excluded.icao,
   geom = excluded.geom;
+
+commit;

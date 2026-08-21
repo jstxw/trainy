@@ -1,3 +1,5 @@
+begin;
+
 create extension if not exists postgis;
 create extension if not exists pgcrypto;
 
@@ -356,3 +358,5 @@ grant execute on function rail_log_upsert_place(jsonb) to service_role;
 grant execute on function save_journey(jsonb) to service_role;
 grant execute on function import_journeys(jsonb, boolean, boolean) to service_role;
 grant execute on function get_journeys(text) to service_role;
+
+commit;
