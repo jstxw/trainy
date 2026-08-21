@@ -14,6 +14,7 @@ import {
   ArrowRight,
   Check,
   CircleGauge,
+  Cloud,
   Download,
   Globe2,
   HardDrive,
@@ -27,7 +28,13 @@ import {
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { MapShell } from "@/components/map-shell";
-import type { JourneyLeg, Place, TravelMode, TravelStats } from "@/lib/domain";
+import type {
+  JourneyLeg,
+  PersistenceMode,
+  Place,
+  TravelMode,
+  TravelStats,
+} from "@/lib/domain";
 import {
   createJournalBackup,
   isJourneyLeg,
@@ -200,8 +207,10 @@ function PlaceCombobox({
 
 function AddJourney({
   onAdd,
+  persistence,
 }: {
   onAdd: (leg: JourneyLeg) => void;
+  persistence: PersistenceMode;
 }) {
   const [number, setNumber] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -345,7 +354,12 @@ function AddJourney({
         )}
       </div>
 
-      <p className="demo-note"><HardDrive size={12} /> Stored locally in this browser</p>
+      <p className="demo-note">
+        {persistence === "database" ? <Cloud size={12} /> : <HardDrive size={12} />}
+        {persistence === "database"
+          ? "Stored in Supabase with a browser backup"
+          : "Stored locally in this browser"}
+      </p>
     </section>
   );
 }
@@ -413,8 +427,10 @@ function JourneyList({
 
 export function TravelDashboard({
   initialLegs,
+  persistence,
 }: {
   initialLegs: JourneyLeg[];
+  persistence: PersistenceMode;
 }) {
   const [legs, setLegs] = useState(initialLegs);
   const [mode, setMode] = useState<ModeFilter>("all");
@@ -430,11 +446,37 @@ export function TravelDashboard({
       if (!Array.isArray(parsed)) return;
 
       const validLegs = parsed.filter(isJourneyLeg);
-      queueMicrotask(() => setLegs(validLegs));
+      if (persistence === "client") {
+        queueMicrotask(() => setLegs(validLegs));
+        return;
+      }
+      if (initialLegs.length > 0 || validLegs.length === 0) return;
+
+      void fetch("/api/legs/migrate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ journeys: validLegs, onlyIfEmpty: true }),
+      })
+        .then(async (response) => {
+          const data = (await response.json()) as { legs?: JourneyLeg[]; migrated?: number };
+          if (!response.ok || !data.legs?.every(isJourneyLeg)) {
+            throw new Error("Could not migrate the browser journal.");
+          }
+          setLegs(data.legs);
+          setBackupStatus(
+            data.migrated
+              ? `Migrated ${data.migrated} ${data.migrated === 1 ? "journey" : "journeys"} to Supabase.`
+              : "Supabase already contains journeys; the browser backup was kept unchanged.",
+          );
+        })
+        .catch(() => {
+          setLegs(validLegs);
+          setBackupStatus("Supabase migration failed; using the browser backup.");
+        });
     } catch {
       // Ignore malformed or unavailable browser storage and start with an empty log.
     }
-  }, []);
+  }, [initialLegs.length, persistence]);
 
   const visibleLegs = useMemo(
     () => legs.filter((leg) => mode === "all" || leg.mode === mode),
@@ -458,12 +500,24 @@ export function TravelDashboard({
     });
   }
 
-  function removeLeg(id: string) {
-    setLegs((current) => {
-      const nextLegs = current.filter((leg) => leg.id !== id);
-      saveLegs(nextLegs);
-      return nextLegs;
-    });
+  async function removeLeg(id: string) {
+    const previousLegs = legs;
+    const nextLegs = legs.filter((leg) => leg.id !== id);
+    setLegs(nextLegs);
+    saveLegs(nextLegs);
+
+    if (persistence === "database") {
+      try {
+        const response = await fetch(`/api/legs?id=${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) throw new Error("Delete failed");
+      } catch {
+        setLegs(previousLegs);
+        saveLegs(previousLegs);
+        setBackupStatus("Could not delete from Supabase; the journey was restored.");
+      }
+    }
   }
 
   function exportJournal() {
@@ -485,9 +539,26 @@ export function TravelDashboard({
 
     try {
       const backup = parseJournalBackup(await file.text());
-      const nextLegs = importMode === "replace"
+      let nextLegs = importMode === "replace"
         ? backup.journeys
         : mergeJourneys(legs, backup.journeys);
+
+      if (persistence === "database") {
+        const response = await fetch("/api/legs/migrate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            journeys: nextLegs,
+            replaceExisting: importMode === "replace",
+          }),
+        });
+        const data = (await response.json()) as { legs?: JourneyLeg[]; error?: string };
+        if (!response.ok || !data.legs?.every(isJourneyLeg)) {
+          throw new Error(data.error || "Could not import this backup to Supabase.");
+        }
+        nextLegs = data.legs;
+      }
+
       saveLegs(nextLegs);
       setLegs(nextLegs);
       setBackupStatus(
@@ -515,7 +586,7 @@ export function TravelDashboard({
           <a href="#journal">Journal</a>
         </nav>
         <div className="topbar__actions">
-          <span className="demo-pill"><i /> Local journal</span>
+          <span className="demo-pill"><i /> {persistence === "database" ? "Supabase journal" : "Local journal"}</span>
           <button type="button" className="primary-button primary-button--compact" onClick={jumpToAddJourney}>
             <Plus size={16} /> Add journey
           </button>
@@ -585,10 +656,15 @@ export function TravelDashboard({
           </div>
 
           <div className="map-storage-note">
-            <span><HardDrive size={15} /> Private by default</span>
+            <span>
+              {persistence === "database" ? <Cloud size={15} /> : <HardDrive size={15} />}
+              {persistence === "database" ? "Supabase + browser backup" : "Private by default"}
+            </span>
             <div className="journal-backup">
               <span className="journal-backup__status" role="status" aria-live="polite">
-                {backupStatus || "Back up your browser journal regularly."}
+                {backupStatus || (persistence === "database"
+                  ? "Journeys sync to Supabase and remain backed up in this browser."
+                  : "Back up your browser journal regularly.")}
               </span>
               <select
                 value={importMode}
@@ -616,7 +692,7 @@ export function TravelDashboard({
         </section>
 
         <div className="lower-grid">
-          <AddJourney onAdd={addLeg} />
+        <AddJourney onAdd={addLeg} persistence={persistence} />
           <JourneyList legs={legs} onRemove={removeLeg} />
         </div>
 

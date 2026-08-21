@@ -1,4 +1,5 @@
 export type TravelMode = "rail" | "air";
+export type PersistenceMode = "client" | "database";
 
 export type Coordinate = [longitude: number, latitude: number];
 

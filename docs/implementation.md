@@ -12,8 +12,9 @@ The running application is the first vertical slice of the architecture in
   and large airports worldwide, generated from the public-domain OurAirports
   dataset. There are no seeded journeys; the personal log starts empty.
 - `src/lib/travel-log.ts` is the read boundary used by pages and route handlers.
-  Replace its sample implementation with a Postgres repository without changing
-  the UI contracts.
+  `src/lib/journey-repository.ts` switches between an empty server repository
+  (with the browser journal as the source of truth) and Supabase based on server
+  environment variables, without changing the UI contracts.
 - `src/app/api` implements the documented lookup, confirmation, manual fallback,
   log, GeoJSON map, and statistics HTTP shapes.
 - `db/migrations/001_initial.sql` is the Postgres/PostGIS schema for the trip-index
@@ -23,13 +24,15 @@ The running application is the first vertical slice of the architecture in
   paths in a separate overlay, with popups, auto-fit, and resize handling.
 - `scripts/sync-maplibre-worker.mjs` self-hosts MapLibre's module worker and
   shared module so GeoJSON rail layers also work in the production Next bundle.
-- Until Postgres is connected, confirmed manual journeys are stored under
-  `rail-log:journeys:v1` in the browser's local storage.
+- Without Supabase configuration, confirmed manual journeys are stored under
+  `rail-log:journeys:v1` in the browser's local storage. With Supabase enabled,
+  the database is authoritative and the same browser entry remains a backup.
 
 ## Next production step
 
-Connect the repository to Postgres, run the migration, and make both confirmation
-endpoints transactional. The ingestion archive and DuckDB transform stay outside
-the web process, as described in the architecture document.
+Configure Supabase, run the migration and `db/import-places.sql`, then verify the
+first-load localStorage migration against a non-production project. The ingestion
+archive and DuckDB transform stay outside the web process, as described in the
+architecture document.
 
 Refresh both place indexes with `npm run sync:places`.

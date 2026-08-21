@@ -1,4 +1,5 @@
 import type { JourneyLeg, Place, TravelMode } from "@/lib/domain";
+import { getPersistenceMode, saveJourney } from "@/lib/journey-repository";
 
 type ManualLegBody = {
   mode?: TravelMode;
@@ -51,11 +52,15 @@ export async function POST(request: Request) {
     ],
   };
 
+  await saveJourney(leg);
+
   return Response.json(
     {
       leg,
-      storage: "client",
-      note: "The browser stores this journey locally after confirmation.",
+      storage: getPersistenceMode(),
+      note: getPersistenceMode() === "database"
+        ? "Saved to Supabase and retained as a browser backup."
+        : "The browser stores this journey locally after confirmation.",
     },
     { status: 201 },
   );

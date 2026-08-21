@@ -4,10 +4,10 @@ import type {
   TravelMode,
   TravelStats,
 } from "@/lib/domain";
+import { findJourneys } from "@/lib/journey-repository";
 
 export async function getLegs(mode?: TravelMode): Promise<JourneyLeg[]> {
-  void mode;
-  return [];
+  return findJourneys(mode);
 }
 
 export async function lookupTrips(number: string, date: string) {
