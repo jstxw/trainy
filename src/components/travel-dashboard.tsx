@@ -87,12 +87,14 @@ function PlaceCombobox({
   kind,
   value,
   onChange,
+  recentPlaces,
   excludeId,
 }: {
   label: string;
   kind: Place["kind"];
   value: Place | null;
   onChange: (place: Place | null) => void;
+  recentPlaces: Place[];
   excludeId?: string;
 }) {
   const listId = useId();
@@ -100,10 +102,32 @@ function PlaceCombobox({
   const [results, setResults] = useState<Place[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
+  const matchingRecentPlaces = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return recentPlaces.filter((place) => {
+      if (place.id === excludeId) return false;
+      if (!normalizedQuery) return true;
+      return [place.name, place.city, place.code]
+        .some((field) => field.toLocaleLowerCase().includes(normalizedQuery));
+    });
+  }, [excludeId, query, recentPlaces]);
+  const optionPlaces = useMemo(() => {
+    const combined = new Map<string, Place>();
+    for (const place of matchingRecentPlaces) combined.set(place.id, place);
+    if (query.trim().length >= 2) {
+      for (const place of results) combined.set(place.id, place);
+    }
+    return Array.from(combined.values()).slice(0, 12);
+  }, [matchingRecentPlaces, query, results]);
+  const showOptions = open && !value && (query.trim().length >= 2 || optionPlaces.length > 0);
 
   useEffect(() => {
     const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 2 || (value && trimmedQuery === value.name)) return;
+    if (trimmedQuery.length < 2 || (value && trimmedQuery === value.name)) {
+      return;
+    }
 
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
@@ -132,7 +156,17 @@ function PlaceCombobox({
     setQuery(place.name);
     setResults([]);
     setOpen(false);
+    setActiveIndex(-1);
     onChange(place);
+  }
+
+  function moveActive(direction: 1 | -1) {
+    if (optionPlaces.length === 0) return;
+    setOpen(true);
+    setActiveIndex((current) => {
+      if (current < 0) return direction === 1 ? 0 : optionPlaces.length - 1;
+      return (current + direction + optionPlaces.length) % optionPlaces.length;
+    });
   }
 
   return (
@@ -143,35 +177,63 @@ function PlaceCombobox({
         <input
           value={query}
           onChange={(event) => {
-            setQuery(event.target.value);
+            const nextQuery = event.target.value;
+            setQuery(nextQuery);
+            setResults([]);
+            setLoading(nextQuery.trim().length >= 2);
             setOpen(true);
+            setActiveIndex(-1);
             onChange(null);
           }}
           onFocus={() => setOpen(true)}
           onBlur={() => window.setTimeout(() => setOpen(false), 140)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              moveActive(1);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              moveActive(-1);
+            } else if (event.key === "Enter" && activeIndex >= 0 && optionPlaces[activeIndex]) {
+              event.preventDefault();
+              selectPlace(optionPlaces[activeIndex]);
+            } else if (event.key === "Escape") {
+              setOpen(false);
+              setActiveIndex(-1);
+            }
+          }}
           placeholder={kind === "station" ? "Stuttgart Hbf" : "STR or Stuttgart"}
           autoComplete="off"
           role="combobox"
-          aria-expanded={open && query.trim().length >= 2}
+          aria-expanded={showOptions}
           aria-controls={listId}
+          aria-activedescendant={activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
           aria-autocomplete="list"
           required
         />
         {value && <Check className="place-field__check" size={15} aria-hidden="true" />}
       </div>
 
-      {open && query.trim().length >= 2 && !value && (
+      {showOptions && (
         <div className="place-results" id={listId} role="listbox">
-          {loading ? (
+          {matchingRecentPlaces.length > 0 && (
+            <span className="place-results__label">
+              {query.trim().length < 2 ? "Recent places" : "Recent matches"}
+            </span>
+          )}
+          {loading && optionPlaces.length === 0 ? (
             <p>Searching places…</p>
-          ) : results.length ? (
-            results.map((place) => (
+          ) : optionPlaces.length ? (
+            optionPlaces.map((place, index) => (
               <button
                 type="button"
                 role="option"
-                aria-selected="false"
+                id={`${listId}-option-${index}`}
+                aria-selected={activeIndex === index}
+                className={activeIndex === index ? "is-active" : ""}
                 key={place.id}
                 onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => selectPlace(place)}
               >
                 {kind === "station" ? <TrainFront size={15} /> : <Plane size={15} />}
@@ -197,12 +259,14 @@ function AddJourney({
   persistence,
   initialLeg,
   previousLeg,
+  recentPlaces,
 }: {
   onSave: (leg: JourneyLeg) => void;
   onBack: () => void;
   persistence: PersistenceMode;
   initialLeg?: JourneyLeg;
   previousLeg?: JourneyLeg | null;
+  recentPlaces: Place[];
 }) {
   const defaultMode = initialLeg?.mode ?? previousLeg?.mode ?? "rail";
   const [number, setNumber] = useState(initialLeg?.number ?? "");
@@ -292,8 +356,22 @@ function AddJourney({
           </label>
         </div>
 
-        <PlaceCombobox label="From" kind={mode === "rail" ? "station" : "airport"} value={origin} onChange={setOrigin} excludeId={destination?.id} />
-        <PlaceCombobox label="To" kind={mode === "rail" ? "station" : "airport"} value={destination} onChange={setDestination} excludeId={origin?.id} />
+        <PlaceCombobox
+          label="From"
+          kind={mode === "rail" ? "station" : "airport"}
+          value={origin}
+          onChange={setOrigin}
+          recentPlaces={recentPlaces.filter((place) => place.kind === defaultModeToKind(mode))}
+          excludeId={destination?.id}
+        />
+        <PlaceCombobox
+          label="To"
+          kind={mode === "rail" ? "station" : "airport"}
+          value={destination}
+          onChange={setDestination}
+          recentPlaces={recentPlaces.filter((place) => place.kind === defaultModeToKind(mode))}
+          excludeId={origin?.id}
+        />
 
         <label>
           <span className="field-label">Operator <small>optional</small></span>
@@ -641,6 +719,21 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
     second.travelDate.localeCompare(first.travelDate) ||
     second.createdAt.localeCompare(first.createdAt),
   )[0] ?? null, [legs]);
+  const recentPlaces = useMemo(() => {
+    const uniquePlaces = new Map<string, Place>();
+    const recentLegs = [...legs].sort((first, second) =>
+      second.travelDate.localeCompare(first.travelDate) ||
+      second.createdAt.localeCompare(first.createdAt),
+    );
+
+    for (const leg of recentLegs) {
+      for (const place of [leg.destination, leg.origin]) {
+        if (!uniquePlaces.has(place.id)) uniquePlaces.set(place.id, place);
+        if (uniquePlaces.size >= 10) return Array.from(uniquePlaces.values());
+      }
+    }
+    return Array.from(uniquePlaces.values());
+  }, [legs]);
 
   function saveLegs(nextLegs: JourneyLeg[]) {
     try { window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(nextLegs)); } catch { /* In-memory state still works. */ }
@@ -818,6 +911,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
                 onBack={showJournal}
                 persistence={persistence}
                 previousLeg={latestLeg}
+                recentPlaces={recentPlaces}
               />
             )}
             {panelView === "edit" && selectedLeg && (
@@ -826,6 +920,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
                 onBack={() => setPanelView("detail")}
                 persistence={persistence}
                 initialLeg={selectedLeg}
+                recentPlaces={recentPlaces}
               />
             )}
             {panelView === "detail" && selectedLeg && (
