@@ -13,7 +13,7 @@
   --air: #e8973a;
   --accent: #f5c518;
   --alert: #e0524a;
-  --font-ui: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-ui: var(--font-nunito-sans), system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
   --sidebar-width: 460px;
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
@@ -24,7 +24,7 @@
 @theme inline {
   --color-background: var(--bg-base);
   --color-foreground: var(--fg-primary);
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-nunito-sans);
   --font-mono: var(--font-plex-mono);
 }
 
@@ -50,6 +50,7 @@ body {
   background: var(--bg-base);
   color: var(--fg-primary);
   font-family: var(--font-ui);
+  font-weight: 500;
 }
 
 button,
@@ -177,8 +178,8 @@ select:focus-visible {
   background: none;
   color: var(--fg-primary);
   font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.025em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   cursor: pointer;
 }
 
@@ -240,7 +241,7 @@ select:focus-visible {
   gap: 6px;
   color: var(--fg-muted);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -289,7 +290,7 @@ select:focus-visible {
 .field-label {
   color: var(--fg-muted);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 750;
   letter-spacing: 0.1em;
   line-height: 1.2;
   text-transform: uppercase;
@@ -316,8 +317,8 @@ select:focus-visible {
   margin: 0;
   color: var(--fg-primary);
   font-size: 28px;
-  font-weight: 680;
-  letter-spacing: -0.04em;
+  font-weight: 850;
+  letter-spacing: -0.045em;
   line-height: 1.1;
 }
 
@@ -331,7 +332,7 @@ select:focus-visible {
   background: var(--accent);
   color: #17160e;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 850;
   cursor: pointer;
   transition: filter var(--duration-fast), transform var(--duration-fast);
 }
@@ -363,10 +364,10 @@ select:focus-visible {
 .passport-stats strong {
   overflow: hidden;
   color: var(--fg-primary);
-  font-family: var(--font-mono);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
+  font-family: var(--font-ui);
+  font-size: 23px;
+  font-weight: 850;
+  letter-spacing: -0.045em;
   text-overflow: ellipsis;
 }
 
@@ -374,6 +375,7 @@ select:focus-visible {
   margin-top: 4px;
   color: var(--fg-muted);
   font-size: 10px;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -433,6 +435,7 @@ select:focus-visible {
   background: transparent;
   color: var(--fg-primary);
   font-size: 12px;
+  font-weight: 600;
 }
 
 .journey-search input::placeholder { color: var(--fg-muted); }
@@ -472,7 +475,7 @@ select:focus-visible {
   background: transparent;
   color: var(--fg-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 750;
   cursor: pointer;
   text-transform: capitalize;
   transition: color var(--duration-fast), background var(--duration-fast);
@@ -551,8 +554,8 @@ select:focus-visible {
   margin: 3px 0 0;
   color: var(--fg-primary);
   font-size: 15px;
-  font-weight: 620;
-  letter-spacing: -0.02em;
+  font-weight: 800;
+  letter-spacing: -0.025em;
 }
 
 .section-heading > span {
@@ -622,7 +625,7 @@ select:focus-visible {
   overflow: hidden;
   min-width: 0;
   font-size: 12px;
-  font-weight: 580;
+  font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -691,7 +694,7 @@ select:focus-visible {
   color: var(--rail);
 }
 
-.journal-empty strong { color: var(--fg-primary); font-size: 13px; }
+.journal-empty strong { color: var(--fg-primary); font-size: 13px; font-weight: 800; }
 .journal-empty p { margin: 6px 0 14px; font-size: 11px; }
 .journal-empty button { border: 0; background: transparent; color: var(--accent); font-size: 11px; cursor: pointer; }
 
@@ -821,7 +824,7 @@ select:focus-visible {
   overflow: hidden;
   margin: 0;
   font-size: 20px;
-  font-weight: 750;
+  font-weight: 900;
   letter-spacing: -0.04em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -875,9 +878,9 @@ select:focus-visible {
 .detail-stats strong {
   overflow: hidden;
   color: var(--fg-primary);
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 800;
   text-overflow: ellipsis;
   text-transform: capitalize;
   white-space: nowrap;
@@ -955,7 +958,7 @@ select:focus-visible {
   overflow: hidden;
   color: var(--fg-primary);
   font-size: 11px;
-  font-weight: 580;
+  font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1134,7 +1137,7 @@ select:focus-visible {
 .place-results button:hover,
 .place-results button.is-active { background: var(--bg-overlay); color: var(--fg-primary); }
 .place-results button > span { display: grid; gap: 3px; min-width: 0; }
-.place-results strong { overflow: hidden; font-size: 11px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.place-results strong { overflow: hidden; font-size: 11px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
 .place-results small { overflow: hidden; color: var(--fg-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .place-results code { color: var(--fg-muted); font-family: var(--font-mono); font-size: 8px; }
 
@@ -1149,7 +1152,7 @@ select:focus-visible {
   background: var(--accent);
   color: #17160e;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 850;
   cursor: pointer;
 }
 
@@ -1178,7 +1181,7 @@ select:focus-visible {
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.34);
   backdrop-filter: blur(16px);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 750;
   cursor: pointer;
 }
 
