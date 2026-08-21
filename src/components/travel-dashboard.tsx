@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   CalendarDays,
   Check,
@@ -21,6 +22,7 @@ import {
   Map as MapIcon,
   MapPin,
   PanelLeftClose,
+  Pencil,
   Plane,
   Plus,
   Route,
@@ -49,7 +51,7 @@ import {
 import { calculateJourneyStats } from "@/lib/journey-stats";
 
 type ModeFilter = "all" | TravelMode;
-type PanelView = "journal" | "detail" | "add";
+type PanelView = "journal" | "detail" | "add" | "edit";
 
 function formatDate(value: string, long = false) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -190,20 +192,31 @@ function PlaceCombobox({
 }
 
 function AddJourney({
-  onAdd,
+  onSave,
   onBack,
   persistence,
+  initialLeg,
+  previousLeg,
 }: {
-  onAdd: (leg: JourneyLeg) => void;
+  onSave: (leg: JourneyLeg) => void;
   onBack: () => void;
   persistence: PersistenceMode;
+  initialLeg?: JourneyLeg;
+  previousLeg?: JourneyLeg | null;
 }) {
-  const [number, setNumber] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [mode, setMode] = useState<TravelMode>("rail");
-  const [operator, setOperator] = useState("");
-  const [origin, setOrigin] = useState<Place | null>(null);
-  const [destination, setDestination] = useState<Place | null>(null);
+  const defaultMode = initialLeg?.mode ?? previousLeg?.mode ?? "rail";
+  const [number, setNumber] = useState(initialLeg?.number ?? "");
+  const [date, setDate] = useState(
+    initialLeg?.travelDate ?? previousLeg?.travelDate ?? new Date().toISOString().slice(0, 10),
+  );
+  const [mode, setMode] = useState<TravelMode>(defaultMode);
+  const [operator, setOperator] = useState(initialLeg?.operator ?? "");
+  const [origin, setOrigin] = useState<Place | null>(
+    initialLeg?.origin ?? (previousLeg?.destination.kind === defaultModeToKind(defaultMode)
+      ? previousLeg.destination
+      : null),
+  );
+  const [destination, setDestination] = useState<Place | null>(initialLeg?.destination ?? null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
 
   function changeMode(nextMode: TravelMode) {
@@ -219,13 +232,22 @@ function AddJourney({
 
     try {
       const response = await fetch("/api/legs/manual", {
-        method: "POST",
+        method: initialLeg ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, number, travelDate: date, operator, origin, destination }),
+        body: JSON.stringify({
+          id: initialLeg?.id,
+          createdAt: initialLeg?.createdAt,
+          mode,
+          number,
+          travelDate: date,
+          operator,
+          origin,
+          destination,
+        }),
       });
       const data = (await response.json()) as { leg?: JourneyLeg };
       if (!response.ok || !data.leg) throw new Error("Could not add journey");
-      onAdd(data.leg);
+      onSave(data.leg);
     } catch {
       setStatus("error");
     }
@@ -238,8 +260,8 @@ function AddJourney({
           <ArrowLeft size={19} />
         </button>
         <div>
-          <span className="section-label">New entry</span>
-          <h1>Add a journey</h1>
+          <span className="section-label">{initialLeg ? "Update entry" : "New entry"}</span>
+          <h1>{initialLeg ? "Edit journey" : "Add a journey"}</h1>
         </div>
       </div>
 
@@ -283,7 +305,9 @@ function AddJourney({
         </label>
 
         <button className="primary-action" disabled={status === "loading" || !origin || !destination}>
-          {status === "loading" ? "Adding journey…" : "Add to passport"}
+          {status === "loading"
+            ? initialLeg ? "Saving changes…" : "Adding journey…"
+            : initialLeg ? "Save changes" : "Add to passport"}
           {status !== "loading" && <ArrowRight size={17} />}
         </button>
 
@@ -298,15 +322,24 @@ function AddJourney({
   );
 }
 
+function defaultModeToKind(mode: TravelMode): Place["kind"] {
+  return mode === "rail" ? "station" : "airport";
+}
+
 function JourneyDetail({
   leg,
   onBack,
   onRemove,
+  onEdit,
+  onReverse,
 }: {
   leg: JourneyLeg;
   onBack: () => void;
   onRemove: (id: string) => void;
+  onEdit: () => void;
+  onReverse: () => Promise<void>;
 }) {
+  const [reversing, setReversing] = useState(false);
   const stops = leg.stops.length > 0
     ? leg.stops
     : [
@@ -370,7 +403,20 @@ function JourneyDetail({
         </ol>
       </section>
 
-      <button className="danger-action" type="button" onClick={() => onRemove(leg.id)}><Trash2 size={15} /> Delete journey</button>
+      <div className="detail-actions">
+        <button type="button" onClick={onEdit}><Pencil size={15} /> Edit</button>
+        <button
+          type="button"
+          disabled={reversing}
+          onClick={() => {
+            setReversing(true);
+            void onReverse().finally(() => setReversing(false));
+          }}
+        >
+          <ArrowLeftRight size={15} /> {reversing ? "Adding…" : "Add return"}
+        </button>
+        <button className="danger-action" type="button" onClick={() => onRemove(leg.id)}><Trash2 size={15} /> Delete</button>
+      </div>
     </div>
   );
 }
@@ -591,6 +637,10 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
     (!effectiveDateTo || leg.travelDate <= effectiveDateTo),
   ), [effectiveDateFrom, effectiveDateTo, legs, mode]);
   const selectedLeg = legs.find((leg) => leg.id === selectedLegId) ?? null;
+  const latestLeg = useMemo(() => [...legs].sort((first, second) =>
+    second.travelDate.localeCompare(first.travelDate) ||
+    second.createdAt.localeCompare(first.createdAt),
+  )[0] ?? null, [legs]);
 
   function saveLegs(nextLegs: JourneyLeg[]) {
     try { window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(nextLegs)); } catch { /* In-memory state still works. */ }
@@ -615,6 +665,38 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
     });
     setSelectedLegId(leg.id);
     setPanelView("detail");
+  }
+
+  function updateLeg(leg: JourneyLeg) {
+    setLegs((current) => {
+      const nextLegs = current.map((item) => item.id === leg.id ? leg : item);
+      saveLegs(nextLegs);
+      return nextLegs;
+    });
+    setSelectedLegId(leg.id);
+    setPanelView("detail");
+  }
+
+  async function reverseLeg(leg: JourneyLeg) {
+    const response = await fetch("/api/legs/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: leg.mode,
+        number: leg.number,
+        travelDate: leg.travelDate,
+        operator: leg.operator,
+        origin: leg.destination,
+        destination: leg.origin,
+      }),
+    });
+    const data = (await response.json()) as { leg?: JourneyLeg; error?: string };
+    if (!response.ok || !data.leg || !isJourneyLeg(data.leg)) {
+      setBackupStatus(data.error || "Could not add the return journey.");
+      throw new Error(data.error || "Could not add the return journey.");
+    }
+    addLeg(data.leg);
+    setBackupStatus(`Added return journey from ${leg.destination.city} to ${leg.origin.city}.`);
   }
 
   async function removeLeg(id: string) {
@@ -730,8 +812,31 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
                 onAdd={() => setPanelView("add")}
               />
             )}
-            {panelView === "add" && <AddJourney onAdd={addLeg} onBack={showJournal} persistence={persistence} />}
-            {panelView === "detail" && selectedLeg && <JourneyDetail leg={selectedLeg} onBack={showJournal} onRemove={removeLeg} />}
+            {panelView === "add" && (
+              <AddJourney
+                onSave={addLeg}
+                onBack={showJournal}
+                persistence={persistence}
+                previousLeg={latestLeg}
+              />
+            )}
+            {panelView === "edit" && selectedLeg && (
+              <AddJourney
+                onSave={updateLeg}
+                onBack={() => setPanelView("detail")}
+                persistence={persistence}
+                initialLeg={selectedLeg}
+              />
+            )}
+            {panelView === "detail" && selectedLeg && (
+              <JourneyDetail
+                leg={selectedLeg}
+                onBack={showJournal}
+                onRemove={removeLeg}
+                onEdit={() => setPanelView("edit")}
+                onReverse={() => reverseLeg(selectedLeg)}
+              />
+            )}
           </div>
 
           <footer className="sidebar-footer">

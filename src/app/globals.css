@@ -967,22 +967,52 @@ select:focus-visible {
   letter-spacing: 0.08em;
 }
 
-.danger-action {
-  justify-content: center;
-  gap: 7px;
-  width: calc(100% - 40px);
-  height: 38px;
+.detail-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr 0.8fr;
+  gap: 8px;
   margin: 15px 20px 26px;
-  border: 1px solid rgba(224, 82, 74, 0.22);
+}
+
+.detail-actions button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: rgba(224, 82, 74, 0.06);
-  color: #df7771;
+  background: var(--bg-raised);
+  color: var(--fg-secondary);
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
 }
 
-.danger-action:hover { background: rgba(224, 82, 74, 0.12); }
+.detail-actions button:hover {
+  border-color: rgba(245, 197, 24, 0.28);
+  background: var(--bg-overlay);
+  color: var(--fg-primary);
+}
+
+.detail-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.detail-actions .danger-action {
+  justify-content: center;
+  border: 1px solid rgba(224, 82, 74, 0.22);
+  background: rgba(224, 82, 74, 0.06);
+  color: #df7771;
+}
+
+.detail-actions .danger-action:hover {
+  border-color: rgba(224, 82, 74, 0.32);
+  background: rgba(224, 82, 74, 0.12);
+  color: #ed8b84;
+}
 
 .journey-form {
   display: grid;
