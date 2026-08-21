@@ -18,8 +18,11 @@ The running application is the first vertical slice of the architecture in
   log, GeoJSON map, and statistics HTTP shapes.
 - `db/migrations/001_initial.sql` is the Postgres/PostGIS schema for the trip-index
   seam and personal log.
-- `src/components/journey-map.tsx` renders rail as MapLibre line layers and air as
-  deck.gl great-circle arcs over OpenFreeMap's muted Positron style.
+- `src/components/journey-map.tsx` uses MapLibre GL JS for the WebGL basemap,
+  rail lines, and place markers. Flights use deck.gl `ArcLayer` great-circle
+  paths in a separate overlay, with popups, auto-fit, and resize handling.
+- `scripts/sync-maplibre-worker.mjs` self-hosts MapLibre's module worker and
+  shared module so GeoJSON rail layers also work in the production Next bundle.
 - Until Postgres is connected, confirmed manual journeys are stored under
   `rail-log:journeys:v1` in the browser's local storage.
 

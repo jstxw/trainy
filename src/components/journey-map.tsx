@@ -1,49 +1,128 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import * as L from "leaflet";
-import type { Coordinate, JourneyLeg } from "@/lib/domain";
+import { useEffect, useRef, useState } from "react";
+import { ArcLayer } from "@deck.gl/layers";
+import { MapboxOverlay } from "@deck.gl/mapbox";
+import * as maplibregl from "maplibre-gl";
+import {
+  GeoJSONSource,
+  LngLatBounds,
+  Map as MapLibreMap,
+  Popup,
+  type IControl,
+  type StyleSpecification,
+} from "maplibre-gl";
+import type { FeatureCollection, LineString, Point } from "geojson";
+import type { Coordinate, JourneyLeg, Place } from "@/lib/domain";
 
-const EUROPE_CENTER: L.LatLngExpression = [50.2, 10];
+maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
-function toLatLng([longitude, latitude]: Coordinate): L.LatLngTuple {
-  return [latitude, longitude];
-}
+const EUROPE_CENTER: Coordinate = [10, 50.2];
+const RAIL_SOURCE = "rail-journeys";
+const PLACE_SOURCE = "journey-places";
+const RAIL_SHADOW_LAYER = "rail-journey-shadow";
+const RAIL_LAYER = "rail-journey-lines";
+const PLACE_LAYER = "journey-place-markers";
 
-function greatCirclePoints(origin: Coordinate, destination: Coordinate, steps = 64) {
-  const toVector = ([longitude, latitude]: Coordinate) => {
-    const longitudeRadians = longitude * (Math.PI / 180);
-    const latitudeRadians = latitude * (Math.PI / 180);
-    return [
-      Math.cos(latitudeRadians) * Math.cos(longitudeRadians),
-      Math.cos(latitudeRadians) * Math.sin(longitudeRadians),
-      Math.sin(latitudeRadians),
-    ];
+// Keeping this style inline removes a second asynchronous style request. MapLibre
+// still renders every tile and journey layer through WebGL.
+const MAP_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    "carto-light": {
+      type: "raster",
+      tiles: [
+        "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      maxzoom: 20,
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    },
+  },
+  layers: [
+    {
+      id: "map-background",
+      type: "background",
+      paint: { "background-color": "#e4e8df" },
+    },
+    {
+      id: "carto-light-basemap",
+      type: "raster",
+      source: "carto-light",
+      paint: {
+        "raster-saturation": -0.55,
+        "raster-contrast": -0.06,
+        "raster-brightness-min": 0.08,
+        "raster-brightness-max": 0.96,
+      },
+    },
+  ],
+};
+
+type RailProperties = {
+  id: string;
+  number: string;
+};
+
+type PlaceProperties = {
+  id: string;
+  name: string;
+  mode: JourneyLeg["mode"];
+};
+
+function railFeatures(legs: JourneyLeg[]): FeatureCollection<LineString, RailProperties> {
+  return {
+    type: "FeatureCollection",
+    features: legs
+      .filter((leg) => leg.mode === "rail")
+      .map((leg) => ({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: railCoordinates(leg) },
+        properties: { id: leg.id, number: leg.number },
+      })),
   };
-  const fromVector = ([x, y, z]: number[]): L.LatLngTuple => [
-    Math.atan2(z, Math.sqrt(x * x + y * y)) * (180 / Math.PI),
-    Math.atan2(y, x) * (180 / Math.PI),
-  ];
-
-  const start = toVector(origin);
-  const end = toVector(destination);
-  const dot = Math.min(1, Math.max(-1, start.reduce((sum, value, index) => sum + value * end[index], 0)));
-  const angle = Math.acos(dot);
-
-  if (angle < 0.000001) return [toLatLng(origin), toLatLng(destination)];
-
-  const angleSine = Math.sin(angle);
-  return Array.from({ length: steps + 1 }, (_, index) => {
-    const progress = index / steps;
-    const startWeight = Math.sin((1 - progress) * angle) / angleSine;
-    const endWeight = Math.sin(progress * angle) / angleSine;
-    return fromVector(start.map((value, vectorIndex) =>
-      value * startWeight + end[vectorIndex] * endWeight,
-    ));
-  });
 }
 
-function popupFor(leg: JourneyLeg) {
+function railCoordinates(leg: JourneyLeg): Coordinate[] {
+  const coordinates = leg.geometry.filter(
+    (coordinate): coordinate is Coordinate =>
+      Array.isArray(coordinate) &&
+      coordinate.length === 2 &&
+      coordinate.every((value) => Number.isFinite(value)),
+  );
+
+  return coordinates.length >= 2
+    ? coordinates
+    : [leg.origin.coordinates, leg.destination.coordinates];
+}
+
+function placeFeatures(legs: JourneyLeg[]): FeatureCollection<Point, PlaceProperties> {
+  const places = new Map<string, { place: Place; mode: JourneyLeg["mode"] }>();
+
+  for (const leg of legs) {
+    const legPlaces = leg.mode === "rail" && leg.stops.length > 0
+      ? leg.stops.map((stop) => stop.place)
+      : [leg.origin, leg.destination];
+
+    for (const place of legPlaces) {
+      places.set(`${leg.mode}:${place.id}`, { place, mode: leg.mode });
+    }
+  }
+
+  return {
+    type: "FeatureCollection",
+    features: Array.from(places.values(), ({ place, mode }) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: place.coordinates },
+      properties: { id: place.id, name: place.name, mode },
+    })),
+  };
+}
+
+function popupContent(leg: JourneyLeg) {
   const content = document.createElement("div");
   content.className = "map-popup";
 
@@ -58,119 +137,202 @@ function popupFor(leg: JourneyLeg) {
   return content;
 }
 
-function renderJourneys(map: L.Map, journeyLayer: L.FeatureGroup, legs: JourneyLeg[]) {
-  journeyLayer.clearLayers();
-  const renderedPlaces = new Set<string>();
+function showLegPopup(map: MapLibreMap, leg: JourneyLeg, coordinates: Coordinate) {
+  new Popup({ closeButton: false, offset: 10 })
+    .setLngLat(coordinates)
+    .setDOMContent(popupContent(leg))
+    .addTo(map);
+}
 
+function flightLayers(map: MapLibreMap, legs: JourneyLeg[]) {
+  const flights = legs.filter((leg) => leg.mode === "air");
+
+  return [
+    new ArcLayer<JourneyLeg>({
+      id: "flight-arcs",
+      data: flights,
+      greatCircle: true,
+      getSourcePosition: (leg) => leg.origin.coordinates,
+      getTargetPosition: (leg) => leg.destination.coordinates,
+      getSourceColor: [214, 133, 62, 230],
+      getTargetColor: [214, 133, 62, 230],
+      getHeight: 0.18,
+      getWidth: 3,
+      numSegments: 64,
+      widthUnits: "pixels",
+      pickable: true,
+      autoHighlight: true,
+      highlightColor: [23, 62, 53, 90],
+      onClick: ({ object, coordinate }) => {
+        if (object && coordinate) {
+          showLegPopup(map, object, [coordinate[0], coordinate[1]]);
+        }
+      },
+    }),
+  ];
+}
+
+function fitJourneys(map: MapLibreMap, legs: JourneyLeg[]) {
+  if (legs.length === 0) {
+    map.jumpTo({ center: EUROPE_CENTER, zoom: 4 });
+    return;
+  }
+
+  const bounds = new LngLatBounds();
   for (const leg of legs) {
-    const color = leg.mode === "rail" ? "#167b64" : "#d6853e";
-    const points = leg.mode === "air"
-      ? greatCirclePoints(leg.origin.coordinates, leg.destination.coordinates)
-      : leg.geometry.map(toLatLng);
-
-    L.polyline(points, {
-      color: leg.mode === "rail" ? "#173e35" : "#8f5b2d",
-      weight: leg.mode === "rail" ? 8 : 6,
-      opacity: 0.12,
-      interactive: false,
-    }).addTo(journeyLayer);
-
-    L.polyline(points, {
-      color,
-      weight: leg.mode === "rail" ? 3.5 : 3,
-      opacity: 0.94,
-      dashArray: leg.mode === "air" ? "8 8" : undefined,
-      lineCap: "round",
-      lineJoin: "round",
-    })
-      .bindPopup(popupFor(leg), { closeButton: false, offset: [0, -4] })
-      .addTo(journeyLayer);
-
-    const places = leg.mode === "rail"
-      ? leg.stops.map((stop) => stop.place)
-      : [leg.origin, leg.destination];
-
-    for (const place of places) {
-      if (renderedPlaces.has(place.id)) continue;
-      renderedPlaces.add(place.id);
-
-      L.circleMarker(toLatLng(place.coordinates), {
-        radius: 4.5,
-        color,
-        weight: 2,
-        fillColor: "#fbfaf6",
-        fillOpacity: 1,
-      })
-        .bindTooltip(place.name, { direction: "top", offset: [0, -6] })
-        .addTo(journeyLayer);
-    }
+    const coordinates = leg.mode === "rail"
+      ? railCoordinates(leg)
+      : [leg.origin.coordinates, leg.destination.coordinates];
+    for (const coordinate of coordinates) bounds.extend(coordinate);
   }
 
-  if (legs.length > 0) {
-    const bounds = journeyLayer.getBounds();
-    if (bounds.isValid()) {
-      map.fitBounds(bounds, {
-        paddingTopLeft: [58, 68],
-        paddingBottomRight: [58, 68],
-        maxZoom: 7,
-        animate: true,
-        duration: 0.5,
-      });
-    }
-  } else {
-    map.setView(EUROPE_CENTER, 4, { animate: false });
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds, {
+      padding: { top: 68, right: 58, bottom: 68, left: 58 },
+      maxZoom: 7,
+      duration: 500,
+    });
   }
+}
+
+function updateJourneys(map: MapLibreMap, overlay: MapboxOverlay, legs: JourneyLeg[]) {
+  const railSource = map.getSource(RAIL_SOURCE);
+  const placeSource = map.getSource(PLACE_SOURCE);
+
+  (railSource as GeoJSONSource | undefined)?.setData(railFeatures(legs));
+  (placeSource as GeoJSONSource | undefined)?.setData(placeFeatures(legs));
+  overlay.setProps({ layers: flightLayers(map, legs) });
+  fitJourneys(map, legs);
+}
+
+function addJourneyLayers(map: MapLibreMap) {
+  map.addSource(RAIL_SOURCE, { type: "geojson", data: railFeatures([]) });
+  map.addSource(PLACE_SOURCE, { type: "geojson", data: placeFeatures([]) });
+
+  map.addLayer({
+    id: RAIL_SHADOW_LAYER,
+    type: "line",
+    source: RAIL_SOURCE,
+    paint: {
+      "line-color": "#173e35",
+      "line-width": ["interpolate", ["linear"], ["zoom"], 2, 7, 8, 11],
+      "line-opacity": 0.18,
+    },
+    layout: { "line-cap": "round", "line-join": "round" },
+  });
+  map.addLayer({
+    id: RAIL_LAYER,
+    type: "line",
+    source: RAIL_SOURCE,
+    paint: {
+      "line-color": "#167b64",
+      "line-width": ["interpolate", ["linear"], ["zoom"], 2, 3.5, 8, 5],
+      "line-opacity": 1,
+    },
+    layout: { "line-cap": "round", "line-join": "round" },
+  });
+  map.addLayer({
+    id: PLACE_LAYER,
+    type: "circle",
+    source: PLACE_SOURCE,
+    paint: {
+      "circle-radius": 4.5,
+      "circle-color": "#fbfaf6",
+      "circle-stroke-width": 2,
+      "circle-stroke-color": [
+        "match",
+        ["get", "mode"],
+        "air",
+        "#d6853e",
+        "#167b64",
+      ],
+    },
+  });
 }
 
 export default function JourneyMap({ legs }: { legs: JourneyLeg[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const journeyLayerRef = useRef<L.FeatureGroup | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const overlayRef = useRef<MapboxOverlay | null>(null);
   const legsRef = useRef(legs);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
     legsRef.current = legs;
-    if (mapRef.current && journeyLayerRef.current) {
-      renderJourneys(mapRef.current, journeyLayerRef.current, legs);
+    const map = mapRef.current;
+    const overlay = overlayRef.current;
+    if (map && overlay && map.getSource(RAIL_SOURCE)) {
+      updateJourneys(map, overlay, legs);
     }
   }, [legs]);
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    const container = containerRef.current;
+    if (!container || mapRef.current) return;
 
-    const map = L.map(containerRef.current, {
-      center: EUROPE_CENTER,
-      zoom: 4,
-      minZoom: 2,
-      maxZoom: 18,
-      zoomControl: false,
-      attributionControl: true,
-      preferCanvas: true,
+    let map: MapLibreMap;
+    try {
+      map = new maplibregl.Map({
+        container,
+        style: MAP_STYLE,
+        center: EUROPE_CENTER,
+        zoom: 4,
+        minZoom: 2,
+        maxZoom: 18,
+      });
+    } catch {
+      queueMicrotask(() => setMapError("WebGL could not start in this browser."));
+      return;
+    }
+
+    const overlay = new MapboxOverlay({
+      interleaved: false,
+      layers: flightLayers(map, []),
+    });
+    mapRef.current = map;
+    overlayRef.current = overlay;
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+    map.addControl(overlay as unknown as IControl);
+
+    map.once("load", () => {
+      addJourneyLayers(map);
+      updateJourneys(map, overlay, legsRef.current);
+      requestAnimationFrame(() => map.resize());
     });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      crossOrigin: true,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(map);
-    L.control.zoom({ position: "bottomright" }).addTo(map);
+    map.on("click", RAIL_LAYER, (event) => {
+      const id = event.features?.[0]?.properties?.id;
+      const leg = legsRef.current.find((candidate) => candidate.id === id);
+      if (leg) showLegPopup(map, leg, [event.lngLat.lng, event.lngLat.lat]);
+    });
+    map.on("mouseenter", RAIL_LAYER, () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", RAIL_LAYER, () => {
+      map.getCanvas().style.cursor = "";
+    });
 
-    const journeyLayer = L.featureGroup().addTo(map);
-    mapRef.current = map;
-    journeyLayerRef.current = journeyLayer;
-    renderJourneys(map, journeyLayer, legsRef.current);
-
-    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ pan: false }));
-    resizeObserver.observe(containerRef.current);
-    requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(container);
+    requestAnimationFrame(() => map.resize());
 
     return () => {
       resizeObserver.disconnect();
-      journeyLayerRef.current = null;
+      overlayRef.current = null;
       mapRef.current = null;
       map.remove();
     };
   }, []);
+
+  if (mapError) {
+    return (
+      <div className="map-error" role="alert">
+        <strong>The WebGL map could not load.</strong>
+        <span>{mapError} Check hardware acceleration and reload the page.</span>
+      </div>
+    );
+  }
 
   return <div ref={containerRef} className="journey-map" />;
 }

@@ -7,20 +7,24 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "npm run sync:map-worker",
+    "sync:map-worker": "node scripts/sync-maplibre-worker.mjs",
     "sync:stations": "node scripts/sync-stations.mjs",
     "sync:airports": "node scripts/sync-airports.mjs",
     "sync:places": "npm run sync:stations && npm run sync:airports"
   },
   "dependencies": {
-    "leaflet": "^1.9.4",
+    "@deck.gl/core": "^9.3.10",
+    "@deck.gl/layers": "^9.3.10",
+    "@deck.gl/mapbox": "^9.3.10",
     "lucide-react": "^1.33.0",
+    "maplibre-gl": "^6.4.1",
     "next": "16.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/leaflet": "^1.9.22",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
