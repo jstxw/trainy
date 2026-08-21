@@ -12,6 +12,7 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  CalendarDays,
   Check,
   ChevronRight,
   Cloud,
@@ -45,6 +46,7 @@ import {
   mergeJourneys,
   parseJournalBackup,
 } from "@/lib/journal-backup";
+import { calculateJourneyStats } from "@/lib/journey-stats";
 
 type ModeFilter = "all" | TravelMode;
 type PanelView = "journal" | "detail" | "add";
@@ -64,25 +66,12 @@ function formatTime(value?: string) {
   return match?.[0] ?? value.slice(0, 5);
 }
 
-function statsFor(legs: JourneyLeg[]): TravelStats {
-  const countries = new Set<string>();
-  const places = new Set<string>();
-
-  for (const leg of legs) {
-    for (const stop of leg.stops) {
-      countries.add(stop.place.country);
-      places.add(stop.place.id);
-    }
-  }
-
-  return {
-    journeys: legs.length,
-    distanceKm: legs.reduce((sum, leg) => sum + leg.distanceKm, 0),
-    countries: countries.size,
-    places: places.size,
-    railJourneys: legs.filter((leg) => leg.mode === "rail").length,
-    airJourneys: legs.filter((leg) => leg.mode === "air").length,
-  };
+function formatMonth(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${value}-01T12:00:00.000Z`));
 }
 
 function journeyYearLabel(legs: JourneyLeg[]) {
@@ -391,8 +380,14 @@ function JourneyJournal({
   stats,
   mode,
   query,
+  dateFrom,
+  dateTo,
+  dateBounds,
   onModeChange,
   onQueryChange,
+  onDateFromChange,
+  onDateToChange,
+  onClearDates,
   onSelect,
   onAdd,
 }: {
@@ -400,8 +395,14 @@ function JourneyJournal({
   stats: TravelStats;
   mode: ModeFilter;
   query: string;
+  dateFrom: string;
+  dateTo: string;
+  dateBounds: { min: string; max: string } | null;
   onModeChange: (mode: ModeFilter) => void;
   onQueryChange: (query: string) => void;
+  onDateFromChange: (date: string) => void;
+  onDateToChange: (date: string) => void;
+  onClearDates: () => void;
   onSelect: (leg: JourneyLeg) => void;
   onAdd: () => void;
 }) {
@@ -417,6 +418,15 @@ function JourneyJournal({
           <div><strong>{stats.journeys}</strong><span>Journeys</span></div>
           <div><strong>{stats.distanceKm.toLocaleString("en-GB")}</strong><span>Kilometres</span></div>
           <div><strong>{stats.places}</strong><span>Places</span></div>
+        </div>
+        <div className="passport-dates" aria-label="Travel date summary">
+          <span>First <strong>{stats.firstTripDate ? formatDate(stats.firstTripDate) : "—"}</strong></span>
+          <span>
+            Busiest <strong>{stats.busiestMonth
+              ? `${formatMonth(stats.busiestMonth.month)} · ${stats.busiestMonth.journeys}`
+              : "—"}</strong>
+          </span>
+          <span>Latest <strong>{stats.lastTripDate ? formatDate(stats.lastTripDate) : "—"}</strong></span>
         </div>
       </section>
 
@@ -442,6 +452,35 @@ function JourneyJournal({
             </button>
           ))}
         </div>
+        <div className="date-filter" aria-label="Filter journeys by travel date">
+          <CalendarDays size={15} aria-hidden="true" />
+          <label>
+            <span className="sr-only">From date</span>
+            <input
+              type="date"
+              value={dateFrom}
+              min={dateBounds?.min}
+              max={dateTo || dateBounds?.max}
+              disabled={!dateBounds}
+              onChange={(event) => onDateFromChange(event.target.value)}
+            />
+          </label>
+          <span aria-hidden="true">—</span>
+          <label>
+            <span className="sr-only">To date</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || dateBounds?.min}
+              max={dateBounds?.max}
+              disabled={!dateBounds}
+              onChange={(event) => onDateToChange(event.target.value)}
+            />
+          </label>
+          {(dateFrom !== dateBounds?.min || dateTo !== dateBounds?.max) && dateBounds && (
+            <button type="button" onClick={onClearDates} aria-label="Clear date filter"><X size={14} /></button>
+          )}
+        </div>
       </div>
 
       <section className="journey-board" aria-labelledby="journeys-title">
@@ -454,8 +493,8 @@ function JourneyJournal({
           <div className="journal-empty">
             <span><Route size={21} /></span>
             <strong>No journeys here</strong>
-            <p>{query ? "Try a different search." : "Add a journey to draw your first line."}</p>
-            {!query && <button type="button" onClick={onAdd}>Add journey</button>}
+            <p>{query || dateBounds ? "Try different filters." : "Add a journey to draw your first line."}</p>
+            {!query && !dateBounds && <button type="button" onClick={onAdd}>Add journey</button>}
           </div>
         ) : (
           <div className="journey-list">
@@ -481,6 +520,8 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
   const [legs, setLegs] = useState(initialLegs);
   const [mode, setMode] = useState<ModeFilter>("all");
   const [query, setQuery] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [panelView, setPanelView] = useState<PanelView>("journal");
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -522,19 +563,33 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
     }
   }, [initialLegs.length, persistence]);
 
-  const stats = useMemo(() => statsFor(legs), [legs]);
+  const stats: TravelStats = useMemo(() => calculateJourneyStats(legs), [legs]);
+  const dateBounds = useMemo(() => {
+    const dates = legs.map((leg) => leg.travelDate).sort((first, second) => first.localeCompare(second));
+    return dates.length ? { min: dates[0], max: dates.at(-1) as string } : null;
+  }, [legs]);
+  const effectiveDateFrom = dateFrom || dateBounds?.min || "";
+  const effectiveDateTo = dateTo || dateBounds?.max || "";
   const visibleLegs = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
     return [...legs]
       .filter((leg) => mode === "all" || leg.mode === mode)
+      .filter((leg) =>
+        (!effectiveDateFrom || leg.travelDate >= effectiveDateFrom) &&
+        (!effectiveDateTo || leg.travelDate <= effectiveDateTo),
+      )
       .filter((leg) => {
         if (!normalizedQuery) return true;
         return [leg.number, leg.operator, leg.origin.name, leg.origin.city, leg.destination.name, leg.destination.city]
           .some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
       })
       .sort((a, b) => b.travelDate.localeCompare(a.travelDate));
-  }, [legs, mode, query]);
-  const mapLegs = useMemo(() => legs.filter((leg) => mode === "all" || leg.mode === mode), [legs, mode]);
+  }, [effectiveDateFrom, effectiveDateTo, legs, mode, query]);
+  const mapLegs = useMemo(() => legs.filter((leg) =>
+    (mode === "all" || leg.mode === mode) &&
+    (!effectiveDateFrom || leg.travelDate >= effectiveDateFrom) &&
+    (!effectiveDateTo || leg.travelDate <= effectiveDateTo),
+  ), [effectiveDateFrom, effectiveDateTo, legs, mode]);
   const selectedLeg = legs.find((leg) => leg.id === selectedLegId) ?? null;
 
   function saveLegs(nextLegs: JourneyLeg[]) {
@@ -663,8 +718,14 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
                 stats={stats}
                 mode={mode}
                 query={query}
+                dateFrom={effectiveDateFrom}
+                dateTo={effectiveDateTo}
+                dateBounds={dateBounds}
                 onModeChange={(nextMode) => { setMode(nextMode); setSelectedLegId(null); }}
                 onQueryChange={setQuery}
+                onDateFromChange={setDateFrom}
+                onDateToChange={setDateTo}
+                onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
                 onSelect={selectLeg}
                 onAdd={() => setPanelView("add")}
               />
