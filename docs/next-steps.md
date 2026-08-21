@@ -1,6 +1,22 @@
 # Travel log — what to fix next
 
-Current state: Next.js 16 / React / TypeScript, MapLibre + deck.gl, place search over Trainline and OurAirports, six API routes, journeys in localStorage. Postgres/PostGIS scaffolded but not connected.
+> Implementation status — 21 August 2026
+>
+> - Completed: versioned export/import, optional Supabase/PostGIS repository and
+>   first-load migration, ranked place search, travel-date filtering/statistics,
+>   reverse/sticky/recent/edit/keyboard entry flows, honest rail-distance labels,
+>   and the portfolio README/screenshot.
+> - Archived: official Swiss nationwide 2026 GTFS Static snapshot, with a
+>   verified checksum and full May–August coverage.
+> - External setup still required: create/configure Supabase and Vercel projects;
+>   protect any deployment that uses the server-side service role.
+> - Later phase: transform the archived GTFS feed into the disposable trip index
+>   so train-number lookup and real `shapes.txt` rail geometry can replace the
+>   manual endpoint fallback.
+
+Original audit state: Next.js 16 / React / TypeScript, MapLibre + deck.gl,
+Trainline/OurAirports search, and a localStorage-only journal. The status block
+above records what has changed since this roadmap was written.
 
 Ordered by consequence, not by effort. The first item is the only one that can lose you data.
 
