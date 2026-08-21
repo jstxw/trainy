@@ -17,16 +17,19 @@ export function MapShell({
   legs,
   selectedLegId,
   onSelectLeg,
+  sidebarOpen,
 }: {
   legs: JourneyLeg[];
   selectedLegId?: string | null;
   onSelectLeg?: (id: string) => void;
+  sidebarOpen?: boolean;
 }) {
   return (
     <JourneyMap
       legs={legs}
       selectedLegId={selectedLegId}
       onSelectLeg={onSelectLeg}
+      sidebarOpen={sidebarOpen}
     />
   );
 }

@@ -622,7 +622,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
   return (
     <main className={`map-workspace ${sidebarOpen ? "has-sidebar" : "is-map-only"}`}>
       <div className="map-canvas" aria-label="Journey map">
-        <MapShell legs={mapLegs} selectedLegId={selectedLegId} onSelectLeg={(id) => {
+        <MapShell legs={mapLegs} selectedLegId={selectedLegId} sidebarOpen={sidebarOpen} onSelectLeg={(id) => {
           const leg = legs.find((candidate) => candidate.id === id);
           if (leg) selectLeg(leg);
         }} />

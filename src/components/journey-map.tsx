@@ -213,7 +213,12 @@ function journeyOverlayLayers(
   ];
 }
 
-function fitJourneys(map: MapLibreMap, legs: JourneyLeg[], selectedLegId: string | null) {
+function fitJourneys(
+  map: MapLibreMap,
+  legs: JourneyLeg[],
+  selectedLegId: string | null,
+  sidebarOpen: boolean,
+) {
   if (legs.length === 0) {
     map.jumpTo({ center: EUROPE_CENTER, zoom: 4 });
     return;
@@ -232,9 +237,9 @@ function fitJourneys(map: MapLibreMap, legs: JourneyLeg[], selectedLegId: string
   if (!bounds.isEmpty()) {
     const compact = window.innerWidth <= 760;
     map.fitBounds(bounds, {
-      padding: compact
+      padding: compact && sidebarOpen
         ? { top: 70, right: 42, bottom: 360, left: 42 }
-        : { top: 76, right: 76, bottom: 76, left: 520 },
+        : { top: 76, right: 76, bottom: 76, left: sidebarOpen ? 520 : 76 },
       maxZoom: selectedLeg ? 9 : 7,
       duration: 600,
     });
@@ -246,6 +251,7 @@ function updateJourneys(
   overlay: MapboxOverlay,
   legs: JourneyLeg[],
   selectedLegId: string | null,
+  sidebarOpen: boolean,
   onSelectLeg: (id: string) => void,
 ) {
   const railSource = map.getSource(RAIL_SOURCE);
@@ -254,7 +260,7 @@ function updateJourneys(
   (railSource as GeoJSONSource | undefined)?.setData(railFeatures(legs));
   (placeSource as GeoJSONSource | undefined)?.setData(placeFeatures(legs));
   overlay.setProps({ layers: journeyOverlayLayers(legs, selectedLegId, onSelectLeg) });
-  fitJourneys(map, legs, selectedLegId);
+  fitJourneys(map, legs, selectedLegId, sidebarOpen);
 }
 
 function addJourneyLayers(map: MapLibreMap) {
@@ -296,29 +302,33 @@ export default function JourneyMap({
   legs,
   selectedLegId = null,
   onSelectLeg,
+  sidebarOpen = true,
 }: {
   legs: JourneyLeg[];
   selectedLegId?: string | null;
   onSelectLeg?: (id: string) => void;
+  sidebarOpen?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const overlayRef = useRef<MapboxOverlay | null>(null);
   const legsRef = useRef(legs);
   const selectedLegIdRef = useRef(selectedLegId);
+  const sidebarOpenRef = useRef(sidebarOpen);
   const onSelectLegRef = useRef(onSelectLeg);
   const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
     legsRef.current = legs;
     selectedLegIdRef.current = selectedLegId;
+    sidebarOpenRef.current = sidebarOpen;
     onSelectLegRef.current = onSelectLeg;
     const map = mapRef.current;
     const overlay = overlayRef.current;
     if (map && overlay && map.getSource(RAIL_SOURCE)) {
-      updateJourneys(map, overlay, legs, selectedLegId, (id) => onSelectLegRef.current?.(id));
+      updateJourneys(map, overlay, legs, selectedLegId, sidebarOpen, (id) => onSelectLegRef.current?.(id));
     }
-  }, [legs, onSelectLeg, selectedLegId]);
+  }, [legs, onSelectLeg, selectedLegId, sidebarOpen]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -356,6 +366,7 @@ export default function JourneyMap({
         overlay,
         legsRef.current,
         selectedLegIdRef.current,
+        sidebarOpenRef.current,
         (id) => onSelectLegRef.current?.(id),
       );
       requestAnimationFrame(() => map.resize());
