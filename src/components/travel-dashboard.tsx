@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   ArrowRight,
   Check,
   CircleGauge,
+  Download,
   Globe2,
   HardDrive,
   MapPin,
@@ -13,14 +23,20 @@ import {
   Route,
   TrainFront,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { MapShell } from "@/components/map-shell";
 import type { JourneyLeg, Place, TravelMode, TravelStats } from "@/lib/domain";
+import {
+  createJournalBackup,
+  isJourneyLeg,
+  JOURNAL_STORAGE_KEY,
+  mergeJourneys,
+  parseJournalBackup,
+} from "@/lib/journal-backup";
 
 type ModeFilter = "all" | TravelMode;
-
-const STORAGE_KEY = "rail-log:journeys:v1";
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -402,23 +418,18 @@ export function TravelDashboard({
 }) {
   const [legs, setLegs] = useState(initialLegs);
   const [mode, setMode] = useState<ModeFilter>("all");
+  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
+  const [backupStatus, setBackupStatus] = useState("");
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem(STORAGE_KEY);
+      const saved = window.localStorage.getItem(JOURNAL_STORAGE_KEY);
       if (!saved) return;
       const parsed = JSON.parse(saved) as unknown;
       if (!Array.isArray(parsed)) return;
 
-      const validLegs = parsed.filter(
-        (leg): leg is JourneyLeg =>
-          typeof leg === "object" &&
-          leg !== null &&
-          "id" in leg &&
-          "origin" in leg &&
-          "destination" in leg &&
-          "geometry" in leg,
-      );
+      const validLegs = parsed.filter(isJourneyLeg);
       queueMicrotask(() => setLegs(validLegs));
     } catch {
       // Ignore malformed or unavailable browser storage and start with an empty log.
@@ -433,7 +444,7 @@ export function TravelDashboard({
 
   function saveLegs(nextLegs: JourneyLeg[]) {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextLegs));
+      window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(nextLegs));
     } catch {
       // The in-memory journal still works if storage is unavailable.
     }
@@ -453,6 +464,38 @@ export function TravelDashboard({
       saveLegs(nextLegs);
       return nextLegs;
     });
+  }
+
+  function exportJournal() {
+    const backup = createJournalBackup(legs);
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `rail-log-${backup.exportedAt.slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setBackupStatus(`Exported ${legs.length} ${legs.length === 1 ? "journey" : "journeys"}.`);
+  }
+
+  async function importJournal(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const backup = parseJournalBackup(await file.text());
+      const nextLegs = importMode === "replace"
+        ? backup.journeys
+        : mergeJourneys(legs, backup.journeys);
+      saveLegs(nextLegs);
+      setLegs(nextLegs);
+      setBackupStatus(
+        `${importMode === "replace" ? "Restored" : "Merged"} ${backup.journeys.length} ${backup.journeys.length === 1 ? "journey" : "journeys"}.`,
+      );
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Could not import this backup.");
+    }
   }
 
   function jumpToAddJourney() {
@@ -543,7 +586,32 @@ export function TravelDashboard({
 
           <div className="map-storage-note">
             <span><HardDrive size={15} /> Private by default</span>
-            <strong>Your entries stay in this browser.</strong>
+            <div className="journal-backup">
+              <span className="journal-backup__status" role="status" aria-live="polite">
+                {backupStatus || "Back up your browser journal regularly."}
+              </span>
+              <select
+                value={importMode}
+                onChange={(event) => setImportMode(event.target.value as "merge" | "replace")}
+                aria-label="How to import a journal backup"
+              >
+                <option value="merge">Merge import</option>
+                <option value="replace">Replace import</option>
+              </select>
+              <button type="button" onClick={exportJournal}>
+                <Download size={14} /> Export
+              </button>
+              <button type="button" onClick={() => importInputRef.current?.click()}>
+                <Upload size={14} /> Import
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept="application/json,.json"
+                onChange={importJournal}
+                hidden
+              />
+            </div>
           </div>
         </section>
 
