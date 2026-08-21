@@ -23,6 +23,7 @@
 # misc
 .DS_Store
 *.pem
+/data/gtfs/archive/*.zip
 
 # debug
 npm-debug.log*
