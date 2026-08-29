@@ -177,6 +177,11 @@ select:focus-visible {
   right: 16px;
 }
 
+.journey-sidebar:not(.journey-sidebar--right) > .sidebar-close,
+.journey-sidebar:not(.journey-sidebar--right) > .sidebar-close:hover {
+  color: #fff;
+}
+
 .journey-sidebar--closed-left {
   transform: translateX(-105%);
   opacity: 0;
