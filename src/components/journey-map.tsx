@@ -13,6 +13,7 @@ import {
 } from "maplibre-gl";
 import type { FeatureCollection, LineString, Point } from "geojson";
 import type { Coordinate, JourneyLeg, Place } from "@/lib/domain";
+import { findAirlineCode, operatorInitials } from "@/lib/airlines";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -31,12 +32,12 @@ const CARTO_TILE_QUERY = CARTO_TILE_KEY
 const MAP_STYLE: StyleSpecification = {
   version: 8,
   sources: {
-    "carto-dark": {
+    "carto-light": {
       type: "raster",
       tiles: [
-        `https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
-        `https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
-        `https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
+        `https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
+        `https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
+        `https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
       ],
       tileSize: 256,
       maxzoom: 20,
@@ -48,17 +49,24 @@ const MAP_STYLE: StyleSpecification = {
     {
       id: "map-background",
       type: "background",
-      paint: { "background-color": "#0b0d0f" },
+      paint: { "background-color": "#dfe1f7" },
     },
     {
-      id: "carto-dark-basemap",
+      id: "carto-light-basemap",
       type: "raster",
-      source: "carto-dark",
+      source: "carto-light",
       paint: {
-        "raster-saturation": -1,
-        "raster-contrast": -0.12,
-        "raster-brightness-min": 0.04,
-        "raster-brightness-max": 0.72,
+        "raster-saturation": -0.75,
+        "raster-contrast": -0.06,
+        "raster-brightness-min": 0.16,
+      },
+    },
+    {
+      id: "map-lavender-tint",
+      type: "background",
+      paint: {
+        "background-color": "#8d7bd8",
+        "background-opacity": 0.24,
       },
     },
   ],
@@ -142,6 +150,68 @@ function placeFeatures(legs: JourneyLeg[]): FeatureCollection<Point, PlaceProper
   };
 }
 
+type OverlayPickable = JourneyLeg | { leg: JourneyLeg; coordinates: Coordinate; name?: string };
+
+const TOOLTIP_DATE = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+}
+
+function operatorMark(leg: JourneyLeg, accent: string): string {
+  if (leg.mode === "air") {
+    const code = findAirlineCode(leg.operator, leg.number);
+    if (code) {
+      return `<img src="https://images.kiwi.com/airlines/64x64/${code}.png" alt="" width="22" height="22" `
+        + `style="position:absolute;top:0;right:0;border-radius:5px;border:1px solid rgba(37,43,99,0.12);background:#fff" `
+        + `onerror="this.remove()" />`;
+    }
+  }
+
+  const initials = operatorInitials(leg.operator);
+  if (!initials || leg.operator === "Unknown operator") return "";
+  return `<span style="position:absolute;top:0;right:0;display:grid;place-items:center;width:22px;height:22px;`
+    + `border-radius:50%;background:${accent}1f;color:${accent};font-weight:800;font-size:8px;letter-spacing:0.02em">`
+    + `${escapeHtml(initials)}</span>`;
+}
+
+function journeyTooltip({ object }: { object?: OverlayPickable | null }) {
+  if (!object) return null;
+  const leg = "leg" in object ? object.leg : object;
+  const stopName = "leg" in object ? object.name : undefined;
+  const accent = leg.mode === "rail" ? "#4046e0" : "#8055e8";
+  const distanceKm = leg.mode === "rail" ? leg.railDistanceKm ?? leg.distanceKm : leg.distanceKm;
+  const date = TOOLTIP_DATE.format(new Date(`${leg.travelDate}T12:00:00.000Z`));
+
+  const mark = operatorMark(leg, accent);
+  const lines = [
+    stopName ? `<strong style="color:#252b63">${escapeHtml(stopName)}</strong>` : "",
+    `<span style="color:${accent}">${escapeHtml(leg.number)}</span> · ${escapeHtml(leg.operator)}`,
+    `${escapeHtml(leg.origin.city)} → ${escapeHtml(leg.destination.city)}`,
+    `${escapeHtml(date)} · ${distanceKm.toLocaleString("en-GB")} km`,
+  ].filter(Boolean).map((line) => `<div style="padding-right:${mark ? 28 : 0}px">${line}</div>`);
+
+  return {
+    html: `<div style="position:relative;display:grid;gap:3px">${mark}${lines.join("")}</div>`,
+    style: {
+      backgroundColor: "rgba(255, 255, 255, 0.95)",
+      border: "1px solid rgba(37, 43, 99, 0.14)",
+      borderRadius: "6px",
+      padding: "8px 10px",
+      color: "rgba(77, 83, 144, 0.95)",
+      fontFamily: "var(--font-mono, monospace)",
+      fontSize: "10px",
+      backdropFilter: "blur(12px)",
+      maxWidth: "260px",
+    },
+  };
+}
+
 function journeyOverlayLayers(
   legs: JourneyLeg[],
   selectedLegId: string | null,
@@ -151,8 +221,8 @@ function journeyOverlayLayers(
   const flights = legs.filter((leg) => leg.mode === "air");
   const railLegs = legs.filter((leg) => leg.mode === "rail");
   const railEndpoints = railLegs.flatMap((leg) => [
-    { leg, coordinates: leg.origin.coordinates },
-    { leg, coordinates: leg.destination.coordinates },
+    { leg, coordinates: leg.origin.coordinates, name: leg.origin.name },
+    { leg, coordinates: leg.destination.coordinates, name: leg.destination.name },
   ]);
   // Pass-through calling points sit on the routed track, so they only make
   // sense over the actual geometry — straight mode would leave them floating.
@@ -160,7 +230,7 @@ function journeyOverlayLayers(
     ? railLegs.flatMap((leg) =>
         (Array.isArray(leg.stops) ? leg.stops : [])
           .filter((stop) => !stop.boarded)
-          .map((stop) => ({ leg, coordinates: stop.place.coordinates })),
+          .map((stop) => ({ leg, coordinates: stop.place.coordinates, name: stop.place.name })),
       )
     : [];
 
@@ -172,18 +242,18 @@ function journeyOverlayLayers(
       getSourcePosition: (leg) => leg.origin.coordinates,
       getTargetPosition: (leg) => leg.destination.coordinates,
       getSourceColor: (leg) => selectedLegId && leg.id !== selectedLegId
-        ? [232, 151, 58, 65]
-        : [232, 151, 58, 245],
+        ? [128, 85, 232, 65]
+        : [128, 85, 232, 245],
       getTargetColor: (leg) => selectedLegId && leg.id !== selectedLegId
-        ? [232, 151, 58, 65]
-        : [232, 151, 58, 245],
+        ? [128, 85, 232, 65]
+        : [128, 85, 232, 245],
       getHeight: 0.1,
       getWidth: (leg) => leg.id === selectedLegId ? 4 : 2.5,
       numSegments: 64,
       widthUnits: "pixels",
       pickable: true,
       autoHighlight: true,
-      highlightColor: [232, 151, 58, 90],
+      highlightColor: [128, 85, 232, 90],
       onClick: ({ object }) => { if (object) onSelectLeg(object.id); },
       updateTriggers: {
         getSourceColor: selectedLegId,
@@ -196,8 +266,8 @@ function journeyOverlayLayers(
       data: railLegs,
       getPath: (leg) => railCoordinates(leg, pathStyle),
       getColor: (leg) => selectedLegId && leg.id !== selectedLegId
-        ? [47, 191, 113, 18]
-        : [47, 191, 113, 52],
+        ? [64, 70, 224, 18]
+        : [64, 70, 224, 52],
       getWidth: (leg) => leg.id === selectedLegId ? 11 : 7,
       widthUnits: "pixels",
       capRounded: true,
@@ -210,15 +280,15 @@ function journeyOverlayLayers(
       data: railLegs,
       getPath: (leg) => railCoordinates(leg, pathStyle),
       getColor: (leg) => selectedLegId && leg.id !== selectedLegId
-        ? [47, 191, 113, 62]
-        : [47, 191, 113, 255],
+        ? [64, 70, 224, 62]
+        : [64, 70, 224, 255],
       getWidth: (leg) => leg.id === selectedLegId ? 5 : 2.5,
       widthUnits: "pixels",
       capRounded: true,
       jointRounded: true,
       pickable: true,
       autoHighlight: true,
-      highlightColor: [47, 191, 113, 90],
+      highlightColor: [64, 70, 224, 90],
       onClick: ({ object }) => { if (object) onSelectLeg(object.id); },
       updateTriggers: { getColor: selectedLegId, getWidth: selectedLegId, getPath: pathStyle },
     }),
@@ -229,9 +299,9 @@ function journeyOverlayLayers(
       getRadius: ({ leg }) => leg.id === selectedLegId ? 3.5 : 2.5,
       radiusUnits: "pixels",
       getFillColor: ({ leg }) => selectedLegId && leg.id !== selectedLegId
-        ? [242, 240, 236, 60]
-        : [242, 240, 236, 220],
-      getLineColor: [11, 13, 15, 170],
+        ? [255, 255, 255, 60]
+        : [255, 255, 255, 220],
+      getLineColor: [37, 43, 99, 185],
       getLineWidth: 1,
       lineWidthUnits: "pixels",
       stroked: true,
@@ -245,10 +315,10 @@ function journeyOverlayLayers(
       getPosition: ({ coordinates }) => coordinates,
       getRadius: 5,
       radiusUnits: "pixels",
-      getFillColor: [242, 240, 236, 245],
+      getFillColor: [255, 255, 255, 245],
       getLineColor: ({ leg }) => selectedLegId && leg.id !== selectedLegId
-        ? [47, 191, 113, 65]
-        : [47, 191, 113, 255],
+        ? [64, 70, 224, 65]
+        : [64, 70, 224, 255],
       getLineWidth: ({ leg }) => leg.id === selectedLegId ? 3 : 2,
       lineWidthUnits: "pixels",
       stroked: true,
@@ -307,7 +377,10 @@ function updateJourneys(
 
   (railSource as GeoJSONSource | undefined)?.setData(railFeatures(legs, pathStyle));
   (placeSource as GeoJSONSource | undefined)?.setData(placeFeatures(legs));
-  overlay.setProps({ layers: journeyOverlayLayers(legs, selectedLegId, onSelectLeg, pathStyle) });
+  overlay.setProps({
+    layers: journeyOverlayLayers(legs, selectedLegId, onSelectLeg, pathStyle),
+    getTooltip: journeyTooltip,
+  });
   fitJourneys(map, legs, selectedLegId, sidebarOpen, pathStyle);
 }
 
@@ -320,9 +393,9 @@ function addJourneyLayers(map: MapLibreMap) {
     type: "line",
     source: RAIL_SOURCE,
     paint: {
-      "line-color": "#173e35",
+      "line-color": "#b9bdf0",
       "line-width": ["interpolate", ["linear"], ["zoom"], 2, 5, 8, 8],
-      "line-opacity": 0.2,
+      "line-opacity": 0.45,
     },
     layout: { "line-cap": "round", "line-join": "round" },
   });
@@ -332,15 +405,15 @@ function addJourneyLayers(map: MapLibreMap) {
     source: PLACE_SOURCE,
     paint: {
       "circle-radius": ["+", 3, ["*", 1.3, ["sqrt", ["get", "visits"]]]],
-      "circle-color": "#f2f0ec",
+      "circle-color": "#ffffff",
       "circle-opacity": 0.82,
       "circle-stroke-width": 1.5,
       "circle-stroke-color": [
         "match",
         ["get", "mode"],
         "air",
-        "#e8973a",
-        "#2fbf71",
+        "#8055e8",
+        "#4046e0",
       ],
     },
   });
@@ -404,6 +477,7 @@ export default function JourneyMap({
     const overlay = new MapboxOverlay({
       interleaved: false,
       layers: journeyOverlayLayers([], null, (id) => onSelectLegRef.current?.(id), railPathStyleRef.current),
+      getTooltip: journeyTooltip,
     });
     mapRef.current = map;
     overlayRef.current = overlay;

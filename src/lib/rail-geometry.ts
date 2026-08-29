@@ -12,11 +12,17 @@ type TransitousStop = {
   parentId?: string;
   lat?: number;
   lon?: number;
+  tz?: string;
+  scheduledArrival?: string;
+  scheduledDeparture?: string;
 };
 
 type TransitousLeg = {
   mode?: string;
+  from?: TransitousStop;
   to?: TransitousStop;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
   intermediateStops?: TransitousStop[];
   legGeometry?: { points?: string; precision?: number };
 };
@@ -67,19 +73,33 @@ export function pathDistanceKm(path: Coordinate[]): number {
 }
 
 // Calling points come from the routed itinerary: pass-through stops of each rail
-// leg, plus the transfer station between legs. Times are deliberately not stored;
-// the itinerary runs on today's timetable, not the logged travel date.
+// leg, plus the transfer station between legs. Times are the scheduled local
+// times of that itinerary — today's timetable, not the logged travel date.
 export function routeStops(
   origin: Place,
   destination: Place,
   railLegs: TransitousLeg[],
 ): LegStop[] {
   const sharedCountry = origin.country === destination.country ? origin.country : "";
-  const stops: LegStop[] = [{ place: origin, sequence: 1, boarded: true }];
+  const firstLeg = railLegs[0];
+  const lastLeg = railLegs[railLegs.length - 1];
+  const stops: LegStop[] = [{
+    place: origin,
+    sequence: 1,
+    boarded: true,
+    departure: localTime(firstLeg?.scheduledStartTime, firstLeg?.from?.tz),
+  }];
 
   const addStop = (raw: TransitousStop | undefined) => {
     const place = stopPlace(raw, sharedCountry);
-    if (place) stops.push({ place, sequence: stops.length + 1, boarded: false });
+    if (!place) return;
+    stops.push({
+      place,
+      sequence: stops.length + 1,
+      boarded: false,
+      arrival: localTime(raw?.scheduledArrival, raw?.tz),
+      departure: localTime(raw?.scheduledDeparture, raw?.tz),
+    });
   };
 
   railLegs.forEach((leg, index) => {
@@ -87,8 +107,27 @@ export function routeStops(
     if (index < railLegs.length - 1) addStop(leg.to);
   });
 
-  stops.push({ place: destination, sequence: stops.length + 1, boarded: true });
+  stops.push({
+    place: destination,
+    sequence: stops.length + 1,
+    boarded: true,
+    arrival: localTime(lastLeg?.scheduledEndTime, lastLeg?.to?.tz),
+  });
   return stops;
+}
+
+function localTime(iso?: string, timeZone?: string): string | undefined {
+  if (!iso || Number.isNaN(Date.parse(iso))) return undefined;
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone,
+    }).format(new Date(iso));
+  } catch {
+    return undefined;
+  }
 }
 
 function stopPlace(raw: TransitousStop | undefined, country: string): Place | null {

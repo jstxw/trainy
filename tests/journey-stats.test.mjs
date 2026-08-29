@@ -55,6 +55,49 @@ test("calculates first, last, and busiest travel periods", () => {
   assert.equal(stats.railJourneys, 3);
   assert.equal(stats.airJourneys, 1);
   assert.equal(stats.distanceKm, 400);
+  assert.equal(stats.railDistanceKm, 300);
+  assert.equal(stats.railStations, 6);
+  assert.equal(stats.railOperators, 1);
+});
+
+test("calculates train duration from the first departure to last arrival", () => {
+  const leg = journey("timed", "2026-06-01");
+  leg.railDistanceKm = 132;
+  leg.stops[0].departure = "08:15:00";
+  leg.stops[1].arrival = "10:45:00";
+
+  const stats = calculateJourneyStats([leg]);
+
+  assert.equal(stats.railDistanceKm, 132);
+  assert.equal(stats.railDurationMinutes, 150);
+});
+
+test("tracks generic operator, distance, and country stats across modes", () => {
+  const train = journey("train", "2026-02-01");
+  train.operator = "Deutsche Bahn";
+  const flight = journey("flight", "2026-01-01", "air");
+  flight.operator = "KLM";
+  flight.distanceKm = 800;
+
+  const stats = calculateJourneyStats([train, flight]);
+
+  assert.equal(stats.operators, 2);
+  assert.equal(stats.airDistanceKm, 800);
+  assert.deepEqual(stats.visitedCountries, ["DE", "FR"]);
+});
+
+test("lists rail countries once each, ordered by first visit", () => {
+  const french = journey("french", "2026-03-10");
+  const german = journey("german", "2026-01-05");
+  german.origin.country = "DE";
+  german.destination.country = "DE";
+  german.stops[0].place.country = "DE";
+  german.stops[1].place.country = "DE";
+  const flight = journey("flight", "2025-12-01", "air");
+
+  const stats = calculateJourneyStats([french, german, flight]);
+
+  assert.deepEqual(stats.railCountries, ["DE", "FR"]);
 });
 
 test("counts only boarded stops toward places and countries", () => {

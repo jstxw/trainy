@@ -6,7 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
+  type SubmitEvent,
 } from "react";
 import {
   ArrowLeft,
@@ -15,8 +15,6 @@ import {
   CalendarDays,
   Check,
   ChevronRight,
-  Cloud,
-  HardDrive,
   Map as MapIcon,
   MapPin,
   PanelLeftClose,
@@ -44,8 +42,10 @@ import {
   isJourneyLeg,
   JOURNAL_STORAGE_KEY,
 } from "@/lib/journal-backup";
-import { calculateJourneyStats } from "@/lib/journey-stats";
-import { estimatedRailDistance } from "@/lib/journey-distance";
+import { calculateJourneyStats, railLegDurationMinutes } from "@/lib/journey-stats";
+import { estimatedFlightMinutes, estimatedRailDistance } from "@/lib/journey-distance";
+import { searchRailOperators } from "@/lib/rail-operators";
+import { findAirlineCode, operatorInitials, searchAirlines } from "@/lib/airlines";
 
 type ModeFilter = "all" | TravelMode;
 type PanelView = "journal" | "detail" | "add" | "edit";
@@ -59,7 +59,11 @@ function needsRouteRefresh(leg: JourneyLeg) {
   return (
     leg.mode === "rail" &&
     leg.source === "manual" &&
-    (leg.railDistanceKm === undefined || leg.stops.length <= 2)
+    (
+      leg.railDistanceKm === undefined ||
+      leg.stops.length <= 2 ||
+      leg.stops.every((stop) => !stop.arrival && !stop.departure)
+    )
   );
 }
 
@@ -82,6 +86,23 @@ function formatTime(value?: string) {
   if (!value) return "--:--";
   const match = value.match(/\d{2}:\d{2}/);
   return match?.[0] ?? value.slice(0, 5);
+}
+
+function formatDuration(minutes: number) {
+  if (minutes <= 0) return "—";
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes.toString().padStart(2, "0")}m`;
+}
+
+const REGION_NAMES = new Intl.DisplayNames(["en"], { type: "region" });
+
+function countryName(code: string) {
+  try {
+    return REGION_NAMES.of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 function formatMonth(value: string) {
@@ -263,15 +284,107 @@ function PlaceCombobox({
   );
 }
 
+function OperatorCombobox({
+  mode,
+  value,
+  onChange,
+}: {
+  mode: TravelMode;
+  value: string;
+  onChange: (operator: string) => void;
+}) {
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const options = useMemo(
+    () => mode === "rail" ? searchRailOperators(value) : searchAirlines(value),
+    [mode, value],
+  );
+  const showOptions = open && options.length > 0;
+
+  function selectOperator(name: string) {
+    onChange(name);
+    setOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function moveActive(direction: 1 | -1) {
+    if (options.length === 0) return;
+    setOpen(true);
+    setActiveIndex((current) => {
+      if (current < 0) return direction === 1 ? 0 : options.length - 1;
+      return (current + direction + options.length) % options.length;
+    });
+  }
+
+  return (
+    <label className="place-field">
+      <span className="field-label">{mode === "rail" ? "Operator" : "Airline"} <small>optional</small></span>
+      <input
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+          setActiveIndex(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 140)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveActive(1);
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveActive(-1);
+          } else if (event.key === "Enter" && activeIndex >= 0 && options[activeIndex]) {
+            event.preventDefault();
+            selectOperator(options[activeIndex].name);
+          } else if (event.key === "Escape") {
+            setOpen(false);
+            setActiveIndex(-1);
+          }
+        }}
+        placeholder={mode === "rail" ? "Deutsche Bahn" : "KLM"}
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showOptions}
+        aria-controls={listId}
+        aria-activedescendant={activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
+        aria-autocomplete="list"
+      />
+
+      {showOptions && (
+        <div className="place-results" id={listId} role="listbox">
+          {options.map((operator, index) => (
+            <button
+              type="button"
+              role="option"
+              id={`${listId}-option-${index}`}
+              aria-selected={activeIndex === index}
+              className={activeIndex === index ? "is-active" : ""}
+              key={operator.name}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => selectOperator(operator.name)}
+            >
+              {mode === "rail" ? <TrainFront size={15} /> : <Plane size={15} />}
+              <span><strong>{operator.name}</strong></span>
+              <code>{operator.code ?? operator.country}</code>
+            </button>
+          ))}
+        </div>
+      )}
+    </label>
+  );
+}
+
 function AddJourney({
   onSave,
-  persistence,
   initialLeg,
   previousLeg,
   recentPlaces,
 }: {
   onSave: (leg: JourneyLeg) => void;
-  persistence: PersistenceMode;
   initialLeg?: JourneyLeg;
   previousLeg?: JourneyLeg | null;
   recentPlaces: Place[];
@@ -298,7 +411,7 @@ function AddJourney({
     setStatus("idle");
   }
 
-  async function submitJourney(event: FormEvent<HTMLFormElement>) {
+  async function submitJourney(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setStatus("loading");
 
@@ -329,7 +442,6 @@ function AddJourney({
     <div className="panel-view panel-view--form">
       <div className="panel-view__header">
         <div>
-          <span className="section-label">{initialLeg ? "Update entry" : "New entry"}</span>
           <h1>{initialLeg ? "Edit journey" : "Add a journey"}</h1>
         </div>
       </div>
@@ -378,14 +490,7 @@ function AddJourney({
           excludeId={origin?.id}
         />
 
-        <label>
-          <span className="field-label">Operator <small>optional</small></span>
-          <input
-            value={operator}
-            onChange={(event) => setOperator(event.target.value)}
-            placeholder={mode === "rail" ? "Deutsche Bahn" : "KLM"}
-          />
-        </label>
+        <OperatorCombobox mode={mode} value={operator} onChange={setOperator} />
 
         <button className="primary-action" disabled={status === "loading" || !origin || !destination}>
           {status === "loading"
@@ -397,16 +502,43 @@ function AddJourney({
         {status === "error" && <p className="form-error" role="alert">Choose two different places and try again.</p>}
       </form>
 
-      <p className="persistence-note">
-        {persistence === "database" ? <Cloud size={13} /> : <HardDrive size={13} />}
-        {persistence === "database" ? "Syncs to Supabase and this browser" : "Saved privately in this browser"}
-      </p>
     </div>
   );
 }
 
 function defaultModeToKind(mode: TravelMode): Place["kind"] {
   return mode === "rail" ? "station" : "airport";
+}
+
+function OperatorMark({ leg }: { leg: JourneyLeg }) {
+  const airlineCode = leg.mode === "air" ? findAirlineCode(leg.operator, leg.number) : null;
+  if (airlineCode) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- small remote logo; next/image adds nothing here
+      <img
+        className="operator-mark"
+        src={`https://images.kiwi.com/airlines/64x64/${airlineCode}.png`}
+        alt={leg.operator}
+        title={leg.operator}
+        width={44}
+        height={44}
+        loading="lazy"
+        onError={(event) => { event.currentTarget.hidden = true; }}
+      />
+    );
+  }
+
+  const initials = operatorInitials(leg.operator);
+  if (!initials || leg.operator === "Unknown operator") return null;
+  return (
+    <span
+      className={`operator-mark operator-mark--monogram ${leg.mode === "air" ? "operator-mark--air" : ""}`}
+      title={leg.operator}
+      aria-label={leg.operator}
+    >
+      {initials}
+    </span>
+  );
 }
 
 function JourneyDetail({
@@ -426,9 +558,9 @@ function JourneyDetail({
   const stops = leg.stops.length > 0
     ? leg.stops
     : [
-        { place: leg.origin, sequence: 0, boarded: true },
-        { place: leg.destination, sequence: 1, boarded: true },
-      ];
+      { place: leg.origin, sequence: 0, boarded: true },
+      { place: leg.destination, sequence: 1, boarded: true },
+    ];
 
   return (
     <div className="panel-view panel-view--detail">
@@ -436,11 +568,11 @@ function JourneyDetail({
         <button className="icon-button" type="button" onClick={onBack} aria-label="Back to journeys"><ArrowLeft size={19} /></button>
         <div>
           <span className="section-label">{formatDate(leg.travelDate, true)}</span>
-          <h1>{leg.number}</h1>
+          <div className="detail-title">
+            <h1>{leg.number}: {leg.origin.city} → {leg.destination.city}</h1>
+            <OperatorMark leg={leg} />
+          </div>
         </div>
-        <span className={`mode-badge mode-badge--${leg.mode}`}>
-          {leg.mode === "rail" ? <TrainFront size={14} /> : <Plane size={14} />}{leg.mode}
-        </span>
       </div>
 
       <section className="departure-card" aria-label={`${leg.origin.name} to ${leg.destination.name}`}>
@@ -466,20 +598,22 @@ function JourneyDetail({
       <div className="detail-stats">
         <div>
           <span>Distance</span>
-          <strong>{leg.distanceKm.toLocaleString("en-GB")} km</strong>
-          <small>
-            {leg.mode === "rail"
-              ? `${formatRailDistance(leg)} km by rail`
-              : "Direct great-circle"}
-          </small>
+          <strong>{leg.mode === "rail" ? formatRailDistance(leg) : leg.distanceKm.toLocaleString("en-GB")} km</strong>
         </div>
         <div><span>Stops</span><strong>{stops.length}</strong></div>
-        <div><span>Source</span><strong>{leg.source}</strong></div>
+        <div>
+          <span>Time</span>
+          <strong>
+            {leg.mode === "rail"
+              ? formatDuration(railLegDurationMinutes(leg))
+              : `~${formatDuration(estimatedFlightMinutes(leg.distanceKm))}`}
+          </strong>
+        </div>
       </div>
 
       <section className="calling-points" aria-labelledby="calling-points-title">
         <div className="section-heading">
-          <div><span className="section-label">Route</span><h2 id="calling-points-title">Calling points</h2></div>
+          <div><h2 id="calling-points-title">Route</h2></div>
           <span>{stops.length} stops</span>
         </div>
         <ol>
@@ -539,8 +673,8 @@ function JourneyControls({
     <div className="journal-controls">
       <label className="journey-search">
         <Search size={16} aria-hidden="true" />
-        <span className="sr-only">Search journeys</span>
-        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search journeys" />
+        <span className="sr-only">Search My Journeys</span>
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search My Journeys" />
         {query && <button type="button" onClick={() => onQueryChange("")} aria-label="Clear search"><X size={14} /></button>}
       </label>
       <div className="mode-switch" aria-label="Filter journeys by mode">
@@ -607,26 +741,100 @@ function JourneyJournal({
   onSelect: (leg: JourneyLeg) => void;
   onAdd: () => void;
 }) {
+  const passport = mode === "rail"
+    ? {
+        title: "MY RAIL PASSPORT",
+        countLabel: "Trains",
+        count: stats.railJourneys,
+        distanceLabel: "Train distance",
+        distanceKm: stats.railDistanceKm,
+        timeLabel: "Train time",
+        placesLabel: "Stations",
+        places: stats.railStations,
+        operatorsLabel: "Operators",
+        flagsLabel: "Countries reached by rail",
+        countries: stats.railCountries,
+      }
+    : mode === "air"
+      ? {
+          title: "MY FLIGHT PASSPORT",
+          countLabel: "Flights",
+          count: stats.airJourneys,
+          distanceLabel: "Flight distance",
+          distanceKm: stats.airDistanceKm,
+          timeLabel: "Flight time",
+          placesLabel: "Airports",
+          places: stats.places,
+          operatorsLabel: "Airlines",
+          flagsLabel: "Countries reached by air",
+          countries: stats.airCountries,
+        }
+      : {
+          title: "MY PASSPORT",
+          countLabel: "Journeys",
+          count: stats.journeys,
+          distanceLabel: "Distance",
+          distanceKm: stats.railDistanceKm + stats.airDistanceKm,
+          timeLabel: "Train time",
+          placesLabel: "Places",
+          places: stats.places,
+          operatorsLabel: "Operators",
+          flagsLabel: "Countries visited",
+          countries: stats.visitedCountries,
+        };
+
   return (
     <div className="panel-view panel-view--journal">
       <section className="passport-summary">
         <div className="passport-summary__title">
-          <h1>Your Passport</h1>
+          <div>
+            <h1>{passport.title}</h1>
+            <span className="passport-summary__subtitle">PASSPORT · PASS · PASAPORTE</span>
+          </div>
         </div>
         <div className="passport-stats" aria-label="Travel summary">
-          <div><strong>{stats.journeys}</strong><span>Journeys</span></div>
-          <div><strong>{stats.distanceKm.toLocaleString("en-GB")}</strong><span>Direct km</span></div>
-          <div><strong>{stats.places}</strong><span>Places</span></div>
+          <div className="passport-stat">
+            <span>{passport.countLabel}</span>
+            <strong>{passport.count.toLocaleString("en-GB")}</strong>
+          </div>
+          <div className="passport-stat passport-stat--distance">
+            <span>{passport.distanceLabel}</span>
+            <strong>{Math.round(passport.distanceKm).toLocaleString("en-GB")}<small>km</small></strong>
+          </div>
+          <div className="passport-stat">
+            <span>{passport.timeLabel}</span>
+            <strong>{formatDuration(mode === "air" ? 0 : stats.railDurationMinutes)}</strong>
+          </div>
+          <div className="passport-stat-pair">
+            <div><span>{passport.placesLabel}</span><strong>{passport.places.toLocaleString("en-GB")}</strong></div>
+            <div><span>{passport.operatorsLabel}</span><strong>{stats.operators.toLocaleString("en-GB")}</strong></div>
+          </div>
         </div>
         <div className="passport-dates" aria-label="Travel date summary">
-          <span>First <strong>{stats.firstTripDate ? formatDate(stats.firstTripDate) : "—"}</strong></span>
-          <span>
-            Busiest <strong>{stats.busiestMonth
-              ? `${formatMonth(stats.busiestMonth.month)} · ${stats.busiestMonth.journeys}`
+          <div><span>First trip</span><strong>{stats.firstTripDate ? formatDate(stats.firstTripDate) : "—"}</strong></div>
+          <div>
+            <span>Busiest month</span><strong>{stats.busiestMonth
+              ? formatMonth(stats.busiestMonth.month)
               : "—"}</strong>
-          </span>
-          <span>Latest <strong>{stats.lastTripDate ? formatDate(stats.lastTripDate) : "—"}</strong></span>
+          </div>
+          <div><span>Latest trip</span><strong>{stats.lastTripDate ? formatDate(stats.lastTripDate) : "—"}</strong></div>
         </div>
+        {passport.countries.length > 0 && (
+          <div className="passport-flags" aria-label={passport.flagsLabel}>
+            {passport.countries.map((country) => (
+              // eslint-disable-next-line @next/next/no-img-element -- tiny remote SVG flag icons; next/image adds nothing here
+              <img
+                key={country}
+                src={`https://cdn.jsdelivr.net/gh/HatScripts/circle-flags@2.7.0/flags/${country.toLowerCase()}.svg`}
+                alt={countryName(country)}
+                title={countryName(country)}
+                width={26}
+                height={26}
+                loading="lazy"
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       <JourneyControls
@@ -664,10 +872,6 @@ function JourneyJournal({
                 </span>
                 <span className="journey-row__meta">
                   <time>{formatDate(leg.travelDate)}</time>
-                  <small>
-                    {leg.distanceKm.toLocaleString("en-GB")} direct
-                    {leg.mode === "rail" && ` · ${formatRailDistance(leg)} rail`}
-                  </small>
                 </span>
                 <ChevronRight className="journey-row__chevron" size={16} aria-hidden="true" />
               </button>
@@ -792,7 +996,10 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
     })();
   }, [legs]);
 
-  const stats: TravelStats = useMemo(() => calculateJourneyStats(legs), [legs]);
+  const stats: TravelStats = useMemo(
+    () => calculateJourneyStats(mode === "all" ? legs : legs.filter((leg) => leg.mode === mode)),
+    [legs, mode],
+  );
   const dateBounds = useMemo(() => {
     const dates = legs.map((leg) => leg.travelDate).sort((first, second) => first.localeCompare(second));
     return dates.length ? { min: dates[0], max: dates.at(-1) as string } : null;
@@ -966,55 +1173,53 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
       </div>
 
       <aside className={`journey-sidebar ${leftSidebarOpen ? "" : "journey-sidebar--closed-left"}`} aria-label="Journey information" aria-hidden={!leftSidebarOpen}>
-          <button className="icon-button sidebar-close" type="button" onClick={() => setLeftSidebarOpen(false)} aria-label="Hide left journey panel"><PanelLeftClose size={18} /></button>
-          <div className="sidebar-scroll">
-            <JourneyJournal
-              legs={visibleLegs}
-              stats={stats}
-              query={query}
-              dateBounds={dateBounds}
-              mode={mode}
-              dateFrom={dateFrom}
-              dateTo={dateTo}
-              onModeChange={(nextMode) => { setMode(nextMode); setSelectedLegId(null); }}
-              onQueryChange={setQuery}
-              onDateFromChange={setDateFrom}
-              onDateToChange={setDateTo}
-              onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
-              onSelect={selectLeg}
-              onAdd={() => setPanelView("add")}
-            />
-          </div>
+        <button className="icon-button sidebar-close" type="button" onClick={() => setLeftSidebarOpen(false)} aria-label="Hide left journey panel"><PanelLeftClose size={18} /></button>
+        <div className="sidebar-scroll">
+          <JourneyJournal
+            legs={visibleLegs}
+            stats={stats}
+            query={query}
+            dateBounds={dateBounds}
+            mode={mode}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onModeChange={(nextMode) => { setMode(nextMode); setSelectedLegId(null); }}
+            onQueryChange={setQuery}
+            onDateFromChange={setDateFrom}
+            onDateToChange={setDateTo}
+            onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
+            onSelect={selectLeg}
+            onAdd={() => setPanelView("add")}
+          />
+        </div>
 
       </aside>
 
       <aside className={`journey-sidebar journey-sidebar--right ${rightSidebarOpen ? "" : "journey-sidebar--closed-right"}`} aria-label="Add journey" aria-hidden={!rightSidebarOpen}>
-          <button className="icon-button sidebar-close" type="button" onClick={() => setRightSidebarOpen(false)} aria-label="Hide right journey panel"><PanelLeftClose size={18} /></button>
-          <div className="sidebar-scroll">
-            {panelView === "edit" && selectedLeg ? (
+        <button className="icon-button sidebar-close" type="button" onClick={() => setRightSidebarOpen(false)} aria-label="Hide right journey panel"><PanelLeftClose size={18} /></button>
+        <div className="sidebar-scroll">
+          {panelView === "edit" && selectedLeg ? (
               <AddJourney
                 onSave={updateLeg}
-                persistence={persistence}
                 initialLeg={selectedLeg}
-                recentPlaces={recentPlaces}
-              />
-            ) : panelView === "detail" && selectedLeg ? (
-              <JourneyDetail
-                leg={selectedLeg}
-                onBack={showJournal}
-                onRemove={removeLeg}
-                onEdit={() => setPanelView("edit")}
-                onReverse={() => reverseLeg(selectedLeg)}
-              />
-            ) : (
+              recentPlaces={recentPlaces}
+            />
+          ) : panelView === "detail" && selectedLeg ? (
+            <JourneyDetail
+              leg={selectedLeg}
+              onBack={showJournal}
+              onRemove={removeLeg}
+              onEdit={() => setPanelView("edit")}
+              onReverse={() => reverseLeg(selectedLeg)}
+            />
+          ) : (
               <AddJourney
                 onSave={addLeg}
-                persistence={persistence}
                 previousLeg={latestLeg}
-                recentPlaces={recentPlaces}
-              />
-            )}
-          </div>
+              recentPlaces={recentPlaces}
+            />
+          )}
+        </div>
       </aside>
 
       <div className="mobile-map-label" aria-hidden="true"><MapIcon size={14} /> Map</div>

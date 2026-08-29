@@ -48,6 +48,15 @@ export type TravelStats = {
   places: number;
   railJourneys: number;
   airJourneys: number;
+  railDistanceKm: number;
+  railDurationMinutes: number;
+  railStations: number;
+  railOperators: number;
+  railCountries: string[];
+  airCountries: string[];
+  operators: number;
+  airDistanceKm: number;
+  visitedCountries: string[];
   firstTripDate?: string | null;
   lastTripDate?: string | null;
   busiestMonth?: {

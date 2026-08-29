@@ -68,6 +68,34 @@ test("builds calling points from itinerary legs, marking only endpoints as board
   });
 });
 
+test("stores scheduled local times on calling points", () => {
+  const stops = routeStops(berlin, hamburg, [
+    {
+      mode: "LONG_DISTANCE",
+      from: { name: "Berlin Hbf", tz: "Europe/Berlin" },
+      to: { name: "Hamburg Hbf", parentId: "de:hh", lat: 53.5528, lon: 10.0069, tz: "Europe/Berlin" },
+      scheduledStartTime: "2026-08-29T10:18:00Z",
+      scheduledEndTime: "2026-08-29T12:39:00Z",
+      intermediateStops: [
+        {
+          name: "Wittenberge, Bahnhof",
+          parentId: "de:witt",
+          lat: 53.0045,
+          lon: 11.7625,
+          tz: "Europe/Berlin",
+          scheduledArrival: "2026-08-29T11:26:00Z",
+          scheduledDeparture: "2026-08-29T11:27:00Z",
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(stops[0].departure, "12:18");
+  assert.equal(stops[1].arrival, "13:26");
+  assert.equal(stops[1].departure, "13:27");
+  assert.equal(stops[2].arrival, "14:39");
+});
+
 test("skips malformed stops and leaves the country blank on cross-border routes", () => {
   const paris = { ...hamburg, id: "station-paris", name: "Paris Est", city: "Paris", country: "FR" };
   const stops = routeStops(berlin, paris, [
