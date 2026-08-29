@@ -21,6 +21,10 @@ const RAIL_SOURCE = "rail-journeys";
 const PLACE_SOURCE = "journey-places";
 const RAIL_SHADOW_LAYER = "rail-journey-shadow";
 const PLACE_LAYER = "journey-place-markers";
+const CARTO_TILE_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY;
+const CARTO_TILE_QUERY = CARTO_TILE_KEY
+  ? `?key=${encodeURIComponent(CARTO_TILE_KEY)}`
+  : "";
 
 // Keeping this style inline removes a second asynchronous style request. MapLibre
 // still renders every tile and journey layer through WebGL.
@@ -30,9 +34,9 @@ const MAP_STYLE: StyleSpecification = {
     "carto-dark": {
       type: "raster",
       tiles: [
-        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        `https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
+        `https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
+        `https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png${CARTO_TILE_QUERY}`,
       ],
       tileSize: 256,
       maxzoom: 20,
