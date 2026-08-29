@@ -44,8 +44,8 @@ import {
 } from "@/lib/journal-backup";
 import { calculateJourneyStats, railLegDurationMinutes } from "@/lib/journey-stats";
 import { estimatedFlightMinutes, estimatedRailDistance } from "@/lib/journey-distance";
-import { searchRailOperators } from "@/lib/rail-operators";
-import { findAirlineCode, operatorInitials, searchAirlines } from "@/lib/airlines";
+import { operatorLogoUrl, searchRailOperators } from "@/lib/rail-operators";
+import { operatorInitials, searchAirlines } from "@/lib/airlines";
 
 type ModeFilter = "all" | TravelMode;
 type PanelView = "journal" | "detail" | "add" | "edit";
@@ -511,13 +511,13 @@ function defaultModeToKind(mode: TravelMode): Place["kind"] {
 }
 
 function OperatorMark({ leg }: { leg: JourneyLeg }) {
-  const airlineCode = leg.mode === "air" ? findAirlineCode(leg.operator, leg.number) : null;
-  if (airlineCode) {
+  const logoUrl = operatorLogoUrl(leg.mode, leg.operator, leg.number);
+  if (logoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- small remote logo; next/image adds nothing here
       <img
         className="operator-mark"
-        src={`https://images.kiwi.com/airlines/64x64/${airlineCode}.png`}
+        src={logoUrl}
         alt={leg.operator}
         title={leg.operator}
         width={44}

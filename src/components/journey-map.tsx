@@ -13,7 +13,8 @@ import {
 } from "maplibre-gl";
 import type { FeatureCollection, LineString, Point } from "geojson";
 import type { Coordinate, JourneyLeg, Place } from "@/lib/domain";
-import { findAirlineCode, operatorInitials } from "@/lib/airlines";
+import { operatorInitials } from "@/lib/airlines";
+import { operatorLogoUrl } from "@/lib/rail-operators";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -164,13 +165,11 @@ function escapeHtml(value: string) {
 }
 
 function operatorMark(leg: JourneyLeg, accent: string): string {
-  if (leg.mode === "air") {
-    const code = findAirlineCode(leg.operator, leg.number);
-    if (code) {
-      return `<img src="https://images.kiwi.com/airlines/64x64/${code}.png" alt="" width="22" height="22" `
-        + `style="position:absolute;top:0;right:0;border-radius:5px;border:1px solid rgba(37,43,99,0.12);background:#fff" `
-        + `onerror="this.remove()" />`;
-    }
+  const logoUrl = operatorLogoUrl(leg.mode, leg.operator, leg.number);
+  if (logoUrl) {
+    return `<img src="${logoUrl}" alt="" width="22" height="22" `
+      + `style="position:absolute;top:0;right:0;border-radius:5px;border:1px solid rgba(37,43,99,0.12);background:#fff" `
+      + `onerror="this.remove()" />`;
   }
 
   const initials = operatorInitials(leg.operator);
