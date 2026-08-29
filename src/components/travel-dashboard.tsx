@@ -28,7 +28,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { BrandMark } from "@/components/brand-mark";
 import { MapShell } from "@/components/map-shell";
 import type { RailPathStyle } from "@/components/journey-map";
 import type {
@@ -775,7 +774,7 @@ function JourneyJournal({
           count: stats.journeys,
           distanceLabel: "Distance",
           distanceKm: stats.railDistanceKm + stats.airDistanceKm,
-          timeLabel: "Train time",
+          timeLabel: "Travel time",
           placesLabel: "Places",
           places: stats.places,
           operatorsLabel: "Operators",
@@ -803,7 +802,17 @@ function JourneyJournal({
           </div>
           <div className="passport-stat">
             <span>{passport.timeLabel}</span>
-            <strong>{formatDuration(mode === "air" ? 0 : stats.railDurationMinutes)}</strong>
+            <strong>
+              {(() => {
+                const minutes = mode === "rail"
+                  ? stats.railDurationMinutes
+                  : mode === "air"
+                    ? stats.airDurationMinutes
+                    : stats.railDurationMinutes + stats.airDurationMinutes;
+                const estimated = mode !== "rail" && stats.airDurationMinutes > 0;
+                return minutes > 0 ? `${estimated ? "~" : ""}${formatDuration(minutes)}` : "—";
+              })()}
+            </strong>
           </div>
           <div className="passport-stat-pair">
             <div><span>{passport.placesLabel}</span><strong>{passport.places.toLocaleString("en-GB")}</strong></div>
@@ -1130,7 +1139,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
 
         {!leftSidebarOpen && (
           <button className="show-sidebar show-sidebar--left" type="button" onClick={() => setLeftSidebarOpen(true)}>
-            <BrandMark /><span>Open journeys</span>
+            <span>Open journeys</span>
           </button>
         )}
 

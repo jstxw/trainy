@@ -56,6 +56,7 @@ export type TravelStats = {
   airCountries: string[];
   operators: number;
   airDistanceKm: number;
+  airDurationMinutes: number;
   visitedCountries: string[];
   firstTripDate?: string | null;
   lastTripDate?: string | null;

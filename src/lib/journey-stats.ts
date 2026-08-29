@@ -1,4 +1,5 @@
 import type { JourneyLeg, TravelStats } from "./domain.ts";
+import { estimatedFlightMinutes } from "./journey-distance.ts";
 
 export function calculateJourneyStats(legs: JourneyLeg[]): TravelStats {
   const countries = new Set<string>();
@@ -75,6 +76,10 @@ export function calculateJourneyStats(legs: JourneyLeg[]): TravelStats {
     airCountries: Array.from(airCountries),
     operators: operators.size,
     airDistanceKm: legs.reduce((sum, leg) => leg.mode === "air" ? sum + leg.distanceKm : sum, 0),
+    airDurationMinutes: legs.reduce(
+      (sum, leg) => leg.mode === "air" ? sum + estimatedFlightMinutes(leg.distanceKm) : sum,
+      0,
+    ),
     visitedCountries: Array.from(visitedCountries),
     firstTripDate: dates[0] ?? null,
     lastTripDate: dates.at(-1) ?? null,

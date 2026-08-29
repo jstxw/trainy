@@ -1348,7 +1348,7 @@ select:focus-visible {
   left: 18px;
   gap: 10px;
   height: 45px;
-  padding: 0 14px 0 8px;
+  padding: 0 14px;
   border: 1px solid rgba(37, 43, 99, 0.14);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
