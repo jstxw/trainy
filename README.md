@@ -1,126 +1,311 @@
+<div align="center">
+
 # Rail Log
 
-![Rail Log map-first journey passport](docs/assets/rail-log.png)
+### A private, map-first passport for every train and flight you take.
 
-A private, map-first passport for train and flight journeys. Rail Log starts
-empty, lets you record your own journeys, and draws them in WebGL without
-shipping hardcoded trips in the application.
+Record journeys, trace rail routes and flight arcs across the map, and watch a
+personal travel passport grow over time.
 
-## What works
+**Next.js 16 · React 19 · MapLibre GL · deck.gl · TypeScript · optional Supabase/PostGIS**
 
-- MapLibre GL + deck.gl map with rail paths, flight arcs, visited-place markers,
-  selection, responsive fitting, and rail/air filtering
-- Search across 52,241 European station records and 4,154 scheduled airports;
-  real/main stations and large IATA airports are ranked above noisier records
-- Manual add, edit, delete, and one-click return journeys
-- Sticky travel date/origin, recent-place suggestions, and keyboard combobox
-  navigation
-- Date-range filtering plus first trip, latest trip, and busiest-month stats
-- Direct geodesic distance with a clearly labelled display-only rail estimate
-- Versioned JSON export/import with explicit merge and replace modes
-- Browser-local journals by default, with optional Supabase/PostGIS persistence
-  and first-load localStorage migration
+</div>
 
-The screenshot uses temporary browser data for documentation only. A fresh app
-contains no demo or seeded journeys.
+![Rail Log passport, journey map, and add-journey panel](docs/assets/rail-log-overview.webp)
 
-## Architecture
+> [!NOTE]
+> Rail Log starts empty. Every screenshot in this README was captured from the
+> current UI with temporary documentation data; the application ships with no
+> seeded or hardcoded journeys.
 
-The central boundary follows
-[`docs/rail-log-architecture (1).md`](docs/rail-log-architecture%20(1).md):
-regenerable reference/timetable data ends at the trip index, while confirmed
-personal journeys are copied into a durable log.
+## What Rail Log does
 
-```text
-Trainline + OurAirports -> generated search indexes -> place search API
+- Keeps rail and air journeys together in one private travel journal.
+- Draws routed rail paths with MapLibre GL and great-circle flight arcs with
+  deck.gl.
+- Builds all, rail-only, and flight-only passports with distance, travel time,
+  places, operators, countries, and date highlights.
+- Searches 52,241 European stations and 4,154 scheduled airports without sending
+  the full catalogs to the browser.
+- Adds, edits, deletes, and reverses journeys from a keyboard-friendly form.
+- Enriches manual rail journeys with track geometry, calling points, and current
+  scheduled times when Transitous can resolve the route.
+- Filters the journal and map together by mode, date range, or text search.
+- Switches rail visualization between routed tracks and straight endpoint lines.
+- Stores data in the browser by default, with optional Supabase/PostGIS
+  persistence for a protected private deployment.
+- Fits the same workspace to desktop, tablet, and mobile screens.
 
-archived GTFS -> future DuckDB transform -> disposable trip index
-                                                |
-manual entry / future lookup -------------------+-> personal journal -> WebGL map
+## A tour of the interface
+
+### One passport, two ways to travel
+
+The main passport combines every trip. Switching to **Air** or **Rail** updates
+the totals, countries, journey list, and visible map layers as one coordinated
+view.
+
+![Flight-only passport and map](docs/assets/rail-log-flight-passport.webp)
+
+### Journey details down to the calling point
+
+Select a line on the map or a row in the journal to inspect the route, operator,
+distance, duration, and stops. From the same panel, a journey can be edited,
+deleted, or used to create a return leg.
+
+![Detailed TGV journey with route and calling points](docs/assets/rail-log-journey-detail.webp)
+
+### Fast manual entry for rail and air
+
+The form remembers useful context from the latest journey, searches known places,
+suggests operators, and keeps origin, destination, mode, and date explicit.
+
+![Air journey entry form beside the travel map](docs/assets/rail-log-add-journey.webp)
+
+### The map can take the whole canvas
+
+Both side panels collapse independently when the route network is the focus.
+Rail and air remain visually distinct, and the rail path control stays available.
+
+![Full-screen map showing rail routes and flight arcs](docs/assets/rail-log-map-focus.webp)
+
+### The same workspace on mobile
+
+On narrow screens, the map stays visible while the passport becomes a bottom
+sheet—no separate mobile experience or reduced feature set.
+
+<p align="center">
+  <img src="docs/assets/rail-log-mobile.webp" width="430" alt="Rail Log mobile passport displayed over the journey map" />
+</p>
+
+## System architecture
+
+The application separates personal journey data from regenerable reference data.
+The browser is the safe default source of truth; enabling Supabase swaps in a
+durable server repository without changing the UI contract.
+
+```mermaid
+flowchart LR
+    subgraph browser[Browser]
+        dashboard[React travel dashboard]
+        map[MapLibre GL and deck.gl]
+        local[Local journey journal]
+        preferences[Map preferences]
+        dashboard --> map
+        dashboard <--> local
+        dashboard <--> preferences
+    end
+
+    subgraph app[Next.js App Router]
+        page[Request-time home page]
+        api[Journey and stats routes]
+        search[Place search route]
+        rail[Rail route enrichment]
+        repository[Journey repository]
+        page --> repository
+        api --> repository
+        api --> rail
+    end
+
+    subgraph reference[Bundled reference data]
+        stations[Station search index]
+        airports[Airport search index]
+        gtfs[Archived Swiss GTFS]
+        tripIndex[Future disposable trip index]
+        stations --> search
+        airports --> search
+        gtfs -.->|Offline DuckDB transform| tripIndex
+    end
+
+    subgraph durable[Optional durable storage]
+        supabase[Supabase PostgreSQL and PostGIS]
+    end
+
+    subgraph external[External map and routing services]
+        transitous[Transitous rail planner]
+        tiles[CARTO tiles with OpenStreetMap data]
+    end
+
+    page --> dashboard
+    dashboard -->|Manual journey requests| api
+    dashboard -->|Station and airport queries| search
+    repository <--> supabase
+    rail -.->|Track geometry and stops| transitous
+    map -.->|Basemap tiles| tiles
+    tripIndex -.->|Future lookup candidates| api
 ```
 
-The Next.js request path never downloads or transforms source datasets. Batch
-inputs and serving data remain separate.
+The archived GTFS feed is deliberately outside the web request path. It is a
+future input to an offline timetable transform, not something Next.js downloads
+or processes while serving a user.
 
-## Run locally
+## Technology
 
-```sh
+| Layer | Used for |
+| --- | --- |
+| Next.js 16 App Router | Request-time page rendering and route handlers |
+| React 19 + TypeScript | Interactive passport, filters, forms, and details |
+| MapLibre GL JS | Basemap, rail paths, markers, popups, and viewport fitting |
+| deck.gl | Flight arcs and interactive WebGL overlays |
+| Tailwind CSS 4 + custom CSS | Build pipeline, layout, responsive sheets, and visual system |
+| Transitous | Best-effort rail geometry, calling points, and current route times |
+| Trainline EU station data | Generated European station search index |
+| OurAirports | Generated scheduled-airport search index |
+| Supabase + PostGIS | Optional private, durable journey persistence |
+| Node test runner + ESLint | Unit tests and static checks |
+
+## Run it locally
+
+### Requirements
+
+- Node.js 20.9 or newer
+- npm
+- A modern browser with WebGL enabled
+
+### Start the app
+
+```bash
+git clone <your-fork-or-repository-url>
+cd trainy
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Without environment
-variables, journeys are stored under `rail-log:journeys:v1` in that browser.
-Refresh the generated station and airport catalogs with:
+Open [http://localhost:3000](http://localhost:3000). With no environment
+variables, the journal is saved in that browser under
+`rail-log:journeys:v1`.
 
-```sh
-npm run sync:places
+To exercise a production build locally:
+
+```bash
+npm run build
+npm start
 ```
 
-## Optional Supabase persistence
+## Persistence modes
 
-Create a Supabase project, copy `.env.example` to `.env.local`, and set the
-server-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` variables. Never put
-the service-role key in a `NEXT_PUBLIC_` variable.
+### Browser-local mode — default
 
-Use the direct or session-pooler Postgres connection string as `DATABASE_URL`,
-then run from the repository root:
+No configuration is required. Each browser gets its own empty journal, and no
+personal journey data is sent to a database. This is the recommended mode for a
+public portfolio deployment.
 
-```sh
+### Supabase mode — private deployments only
+
+Copy the environment template and provide server-only credentials:
+
+```bash
+cp .env.example .env.local
+```
+
+```dotenv
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=
+NEXT_PUBLIC_CARTO_API_KEY=
+```
+
+Create the schema and import the place table from the repository root:
+
+```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/001_initial.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/import-places.sql
 ```
 
-The import builds PostGIS points with longitude first. On first database-backed
-load, a browser journal is uploaded only when the remote journal is empty, and
-the browser copy remains as a backup. RLS blocks direct anonymous table access;
-the app accesses the database only from server routes.
+> [!WARNING]
+> The server routes use the Supabase service role and do not implement end-user
+> authentication. Protect the entire deployment before configuring Supabase.
+> Never expose the service-role key through a `NEXT_PUBLIC_` variable.
 
-Important: those server routes use the service role and do not yet implement
-end-user authentication. Do not expose a Supabase-configured deployment to the
-public internet without deployment-level access protection. A public portfolio
-deployment should omit the Supabase variables, giving each visitor an isolated
-browser-local journal. See [`docs/deployment.md`](docs/deployment.md).
+On the first database-backed load, a browser journal is migrated only if the
+remote journal is empty. The local copy remains available as a fallback. See
+[the deployment guide](docs/deployment.md) for the complete rollout checklist.
 
-## Timetable archive
+## Reference data
 
-The official nationwide Swiss GTFS snapshot for 2026 has been downloaded and
-validated locally. Its source, coverage, restore command, and SHA-256 live in
-[`data/gtfs/archive/README.md`](data/gtfs/archive/README.md). The 224 MB ZIP is
-ignored by Git, while its manifest is versioned.
+The search catalogs are generated artifacts, not runtime downloads:
 
-Train-number lookup remains the documented phase-two seam: the archive still
-needs an offline DuckDB rail-only transform before `/api/lookup` can return
-candidates or real `shapes.txt` geometry.
+```bash
+npm run sync:stations
+npm run sync:airports
+# or refresh both
+npm run sync:places
+```
 
-## API
+- `data/stations.json` contains the ranked station index derived from the
+  Trainline EU dataset.
+- `data/airports.json` contains the scheduled-airport index derived from
+  OurAirports.
+- `data/places.csv` is the database import form used by PostGIS.
+- `data/gtfs/archive/` documents the validated Swiss 2026 GTFS snapshot. The
+  large ZIP is ignored by Git; its checksum and restoration details are
+  versioned in [the archive manifest](data/gtfs/archive/README.md).
 
-- `GET /api/places/search?kind=station&q=Berlin+Hbf`
-- `GET /api/places/search?kind=airport&q=FRA`
-- `POST|PUT /api/legs/manual`
-- `GET|DELETE /api/legs`
-- `POST /api/legs/migrate`
-- `GET /api/map`
-- `GET /api/stats`
-- `GET /api/lookup?number=ICE+573&date=2026-07-14` (returns no matches until the
-  timetable index is built)
+Manual rail entry calls Transitous on the server. If routing is unavailable,
+slow, or returns the wrong endpoints, Rail Log falls back safely to the two
+confirmed endpoint coordinates instead of inventing track geometry.
 
-## Design decisions
+## HTTP API
 
-- Manual entry shipped before lookup so the personal journal is useful without
-  pretending incomplete timetable coverage is reliable.
-- Endpoint geometry is stored honestly. Rail distance keeps the direct PostGIS
-  value and applies the temporary 1.2× estimate only in presentation.
-- No hardcoded journeys or automatic demo mode: personal data starts empty and
-  the README screenshot carries the visual story.
-- The page explicitly renders at request time so a Supabase journal cannot be
-  embedded in a static Next.js build artifact.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/places/search?kind=station&q=Berlin+Hbf` | Search stations |
+| `GET` | `/api/places/search?kind=airport&q=FRA` | Search airports |
+| `POST` | `/api/legs/manual` | Create a manual journey |
+| `PUT` | `/api/legs/manual` | Update a manual journey |
+| `GET` | `/api/legs?mode=rail` | Read the journal, optionally by mode |
+| `DELETE` | `/api/legs?id=<journey-id>` | Delete a persisted journey |
+| `POST` | `/api/legs/migrate` | Migrate a validated browser journal |
+| `GET` | `/api/map` | Return journey lines as GeoJSON |
+| `GET` | `/api/stats` | Return calculated passport statistics |
+| `GET` | `/api/lookup?number=ICE+573&date=2026-07-14` | Reserved timetable lookup seam |
 
-## Checks
+Timetable-number lookup is intentionally not connected yet: the route validates
+the request and returns an empty candidate list until the offline GTFS index is
+built.
 
-```sh
+## Project layout
+
+```text
+src/
+├── app/
+│   ├── api/                 # Route handlers
+│   ├── globals.css          # Complete responsive visual system
+│   ├── layout.tsx           # Fonts, metadata, and global setup
+│   └── page.tsx             # Request-time application entry
+├── components/
+│   ├── journey-map.tsx      # MapLibre and deck.gl renderer
+│   ├── map-shell.tsx        # Client-only map boundary
+│   └── travel-dashboard.tsx # Passport, filters, forms, and details
+└── lib/                     # Domain, repositories, routing, search, and stats
+
+data/                        # Generated place indexes and GTFS archive metadata
+db/                          # PostgreSQL/PostGIS migration and import scripts
+docs/                        # Architecture, deployment, design, and screenshots
+scripts/                     # Data and MapLibre worker synchronization
+tests/                       # Node unit tests
+```
+
+## Quality checks
+
+```bash
 npm test
 npm run lint
 npx tsc --noEmit
 npm run build
 ```
+
+The test suite covers place ranking, journey statistics, distances, routed rail
+geometry, journal validation, airlines, and rail operators.
+
+## Current roadmap
+
+- Transform the archived Swiss GTFS snapshot into a disposable rail-only trip
+  index with DuckDB.
+- Connect train-number and date lookup to real candidates and historical
+  `shapes.txt` geometry.
+- Add end-user authentication before supporting shared or multi-user Supabase
+  deployments.
+- Expose the existing versioned journal backup primitives through the UI.
+
+More implementation detail lives in [docs/implementation.md](docs/implementation.md),
+with longer-term work tracked in [docs/next-steps.md](docs/next-steps.md).
