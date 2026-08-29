@@ -147,13 +147,50 @@ select:focus-visible {
   z-index: 20;
   inset: 0 auto 0 0;
   display: grid;
-  grid-template-rows: 65px minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   width: var(--sidebar-width);
   border-right: 1px solid var(--border);
+  border-radius: 0 16px 16px 0;
   background: rgba(11, 13, 15, 0.97);
   box-shadow: 18px 0 45px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(20px);
+  overflow: hidden;
+  transition: transform 240ms var(--ease), opacity 240ms var(--ease);
   animation: sidebar-in var(--duration) var(--ease);
+}
+
+.journey-sidebar--right {
+  right: 0;
+  left: auto;
+  border-right: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 16px 0 0 16px;
+  box-shadow: -18px 0 45px rgba(0, 0, 0, 0.26);
+  animation-name: sidebar-in-right;
+}
+
+.journey-sidebar > .sidebar-close {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  right: 16px;
+}
+
+.journey-sidebar--closed-left {
+  transform: translateX(-105%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.journey-sidebar--closed-right {
+  transform: translateX(105%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes sidebar-in-right {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 @keyframes sidebar-in {
@@ -299,9 +336,7 @@ select:focus-visible {
 .passport-summary {
   padding: 28px 24px 22px;
   border-bottom: 1px solid var(--border);
-  background:
-    linear-gradient(130deg, rgba(47, 191, 113, 0.08), transparent 48%),
-    var(--bg-base);
+  background: var(--bg-base);
 }
 
 .passport-summary__title {
@@ -404,7 +439,7 @@ select:focus-visible {
   gap: 10px;
   padding: 16px 18px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  background: var(--bg-base);
 }
 
 .journey-search {
@@ -491,9 +526,9 @@ select:focus-visible {
 
 .date-filter {
   display: grid;
-  grid-template-columns: 17px minmax(0, 1fr) auto minmax(0, 1fr) 24px;
+  grid-template-columns: 17px minmax(0, 1fr) minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-height: 38px;
   padding: 3px 7px 3px 10px;
   border: 1px solid var(--border);
@@ -503,7 +538,23 @@ select:focus-visible {
 }
 
 .date-filter label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px;
   min-width: 0;
+}
+
+.date-filter > svg { margin-right: 3px; }
+.date-filter label:first-of-type { padding-right: 8px; }
+.date-filter label:last-of-type { padding-right: 5px; }
+
+.date-filter__label {
+  color: var(--fg-muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .date-filter input {
@@ -519,6 +570,8 @@ select:focus-visible {
   font-family: var(--font-mono);
   font-size: 9px;
 }
+
+.date-filter input::-webkit-calendar-picker-indicator { opacity: 0.55; }
 
 .date-filter button {
   display: grid;
@@ -676,22 +729,8 @@ select:focus-visible {
   display: grid;
   justify-items: center;
   padding: 42px 24px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 8px;
   color: var(--fg-muted);
   text-align: center;
-}
-
-.journal-empty > span {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  margin-bottom: 13px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  place-items: center;
-  background: var(--bg-raised);
-  color: var(--rail);
 }
 
 .journal-empty strong { color: var(--fg-primary); font-size: 13px; font-weight: 800; }
@@ -745,7 +784,7 @@ select:focus-visible {
 
 .panel-view__header {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   padding: 22px 20px;
@@ -1187,6 +1226,8 @@ select:focus-visible {
 
 .show-sidebar .brand-mark { width: 28px; height: 28px; }
 
+.show-sidebar--right { right: 18px; left: auto; }
+
 .map-status {
   position: fixed;
   z-index: 11;
@@ -1218,6 +1259,45 @@ select:focus-visible {
 }
 
 .map-status i.map-status__air { background: var(--air); box-shadow: 0 0 7px rgba(232, 151, 58, 0.4); }
+
+.map-path-toggle {
+  position: fixed;
+  z-index: 11;
+  bottom: 74px;
+  left: 20px;
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid rgba(242, 240, 236, 0.1);
+  border-radius: 6px;
+  background: rgba(11, 13, 15, 0.84);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(12px);
+  transition: left var(--duration) var(--ease);
+}
+
+.has-sidebar .map-path-toggle { left: calc(var(--sidebar-width) + 20px); }
+
+.map-path-toggle button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.map-path-toggle button.is-active {
+  background: rgba(47, 191, 113, 0.16);
+  color: var(--rail);
+}
 
 .map-empty-state {
   position: fixed;
@@ -1280,10 +1360,19 @@ select:focus-visible {
 
   .journey-sidebar {
     inset: 43% 0 0;
-    grid-template-rows: 57px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     width: 100%;
     border-top: 1px solid var(--border-strong);
     border-right: 0;
+    border-radius: 15px 15px 0 0;
+    box-shadow: 0 -18px 45px rgba(0, 0, 0, 0.34);
+    animation-name: sheet-in;
+  }
+
+  .journey-sidebar--right {
+    inset: 43% 0 0;
+    border-top: 1px solid var(--border-strong);
+    border-left: 0;
     border-radius: 15px 15px 0 0;
     box-shadow: 0 -18px 45px rgba(0, 0, 0, 0.34);
     animation-name: sheet-in;
@@ -1322,9 +1411,12 @@ select:focus-visible {
   .journey-row__meta time { display: none; }
   .has-sidebar .map-status { top: 16px; bottom: auto; left: 16px; }
   .map-status { bottom: 20px; left: 16px; }
+  .has-sidebar .map-path-toggle { top: 60px; bottom: auto; left: 16px; }
+  .map-path-toggle { bottom: 64px; left: 16px; }
   .has-sidebar .map-empty-state { top: 21.5%; margin-left: 0; }
   .map-empty-state { width: 220px; padding: 18px; }
   .show-sidebar { top: 14px; left: 14px; }
+  .show-sidebar--right { right: 14px; left: auto; }
   .panel-view__header { padding: 16px; }
   .departure-card { margin: 16px; }
   .detail-stats { margin: 0 16px 20px; }

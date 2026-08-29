@@ -64,6 +64,8 @@ const MAP_STYLE: StyleSpecification = {
   ],
 };
 
+export type RailPathStyle = "straight" | "actual";
+
 type RailProperties = {
   id: string;
   number: string;
@@ -76,20 +78,27 @@ type PlaceProperties = {
   visits: number;
 };
 
-function railFeatures(legs: JourneyLeg[]): FeatureCollection<LineString, RailProperties> {
+function railFeatures(
+  legs: JourneyLeg[],
+  pathStyle: RailPathStyle,
+): FeatureCollection<LineString, RailProperties> {
   return {
     type: "FeatureCollection",
     features: legs
       .filter((leg) => leg.mode === "rail")
       .map((leg) => ({
         type: "Feature",
-        geometry: { type: "LineString", coordinates: railCoordinates(leg) },
+        geometry: { type: "LineString", coordinates: railCoordinates(leg, pathStyle) },
         properties: { id: leg.id, number: leg.number },
       })),
   };
 }
 
-function railCoordinates(leg: JourneyLeg): Coordinate[] {
+function railCoordinates(leg: JourneyLeg, pathStyle: RailPathStyle): Coordinate[] {
+  if (pathStyle === "straight") {
+    return [leg.origin.coordinates, leg.destination.coordinates];
+  }
+
   const coordinates = (Array.isArray(leg.geometry) ? leg.geometry : []).filter(
     (coordinate): coordinate is Coordinate =>
       Array.isArray(coordinate) &&
@@ -102,18 +111,24 @@ function railCoordinates(leg: JourneyLeg): Coordinate[] {
     : [leg.origin.coordinates, leg.destination.coordinates];
 }
 
+// Only boarded places feed this MapLibre layer; it renders beneath the deck.gl
+// overlay, so pass-through calling points drawn here would hide under the track
+// lines. Those are rendered by the "rail-calling-points" overlay layer instead.
 function placeFeatures(legs: JourneyLeg[]): FeatureCollection<Point, PlaceProperties> {
   const places = new Map<string, { place: Place; mode: JourneyLeg["mode"]; visits: number }>();
 
   for (const leg of legs) {
-    const legPlaces = leg.mode === "rail" && Array.isArray(leg.stops) && leg.stops.length > 0
-      ? leg.stops.map((stop) => stop.place)
-      : [leg.origin, leg.destination];
+    const legStops = leg.mode === "rail" && Array.isArray(leg.stops) && leg.stops.length > 0
+      ? leg.stops.filter((stop) => stop.boarded)
+      : [
+          { place: leg.origin, boarded: true },
+          { place: leg.destination, boarded: true },
+        ];
 
-    for (const place of legPlaces) {
-      const key = `${leg.mode}:${place.id}`;
+    for (const stop of legStops) {
+      const key = `${leg.mode}:${stop.place.id}`;
       const existing = places.get(key);
-      places.set(key, { place, mode: leg.mode, visits: (existing?.visits ?? 0) + 1 });
+      places.set(key, { place: stop.place, mode: leg.mode, visits: (existing?.visits ?? 0) + 1 });
     }
   }
 
@@ -131,6 +146,7 @@ function journeyOverlayLayers(
   legs: JourneyLeg[],
   selectedLegId: string | null,
   onSelectLeg: (id: string) => void,
+  pathStyle: RailPathStyle,
 ) {
   const flights = legs.filter((leg) => leg.mode === "air");
   const railLegs = legs.filter((leg) => leg.mode === "rail");
@@ -138,6 +154,15 @@ function journeyOverlayLayers(
     { leg, coordinates: leg.origin.coordinates },
     { leg, coordinates: leg.destination.coordinates },
   ]);
+  // Pass-through calling points sit on the routed track, so they only make
+  // sense over the actual geometry — straight mode would leave them floating.
+  const callingPoints = pathStyle === "actual"
+    ? railLegs.flatMap((leg) =>
+        (Array.isArray(leg.stops) ? leg.stops : [])
+          .filter((stop) => !stop.boarded)
+          .map((stop) => ({ leg, coordinates: stop.place.coordinates })),
+      )
+    : [];
 
   return [
     new ArcLayer<JourneyLeg>({
@@ -169,7 +194,7 @@ function journeyOverlayLayers(
     new PathLayer<JourneyLeg>({
       id: "rail-route-shadow",
       data: railLegs,
-      getPath: railCoordinates,
+      getPath: (leg) => railCoordinates(leg, pathStyle),
       getColor: (leg) => selectedLegId && leg.id !== selectedLegId
         ? [47, 191, 113, 18]
         : [47, 191, 113, 52],
@@ -178,12 +203,12 @@ function journeyOverlayLayers(
       capRounded: true,
       jointRounded: true,
       pickable: false,
-      updateTriggers: { getColor: selectedLegId, getWidth: selectedLegId },
+      updateTriggers: { getColor: selectedLegId, getWidth: selectedLegId, getPath: pathStyle },
     }),
     new PathLayer<JourneyLeg>({
       id: "rail-routes",
       data: railLegs,
-      getPath: railCoordinates,
+      getPath: (leg) => railCoordinates(leg, pathStyle),
       getColor: (leg) => selectedLegId && leg.id !== selectedLegId
         ? [47, 191, 113, 62]
         : [47, 191, 113, 255],
@@ -195,7 +220,24 @@ function journeyOverlayLayers(
       autoHighlight: true,
       highlightColor: [47, 191, 113, 90],
       onClick: ({ object }) => { if (object) onSelectLeg(object.id); },
-      updateTriggers: { getColor: selectedLegId, getWidth: selectedLegId },
+      updateTriggers: { getColor: selectedLegId, getWidth: selectedLegId, getPath: pathStyle },
+    }),
+    new ScatterplotLayer<{ leg: JourneyLeg; coordinates: Coordinate }>({
+      id: "rail-calling-points",
+      data: callingPoints,
+      getPosition: ({ coordinates }) => coordinates,
+      getRadius: ({ leg }) => leg.id === selectedLegId ? 3.5 : 2.5,
+      radiusUnits: "pixels",
+      getFillColor: ({ leg }) => selectedLegId && leg.id !== selectedLegId
+        ? [242, 240, 236, 60]
+        : [242, 240, 236, 220],
+      getLineColor: [11, 13, 15, 170],
+      getLineWidth: 1,
+      lineWidthUnits: "pixels",
+      stroked: true,
+      pickable: true,
+      onClick: ({ object }) => { if (object) onSelectLeg(object.leg.id); },
+      updateTriggers: { getFillColor: selectedLegId, getRadius: selectedLegId },
     }),
     new ScatterplotLayer<{ leg: JourneyLeg; coordinates: Coordinate }>({
       id: "rail-endpoints",
@@ -222,6 +264,7 @@ function fitJourneys(
   legs: JourneyLeg[],
   selectedLegId: string | null,
   sidebarOpen: boolean,
+  pathStyle: RailPathStyle,
 ) {
   if (legs.length === 0) {
     map.jumpTo({ center: EUROPE_CENTER, zoom: 4 });
@@ -233,7 +276,7 @@ function fitJourneys(
   const legsToFit = selectedLeg ? [selectedLeg] : legs;
   for (const leg of legsToFit) {
     const coordinates = leg.mode === "rail"
-      ? railCoordinates(leg)
+      ? railCoordinates(leg, pathStyle)
       : [leg.origin.coordinates, leg.destination.coordinates];
     for (const coordinate of coordinates) bounds.extend(coordinate);
   }
@@ -256,19 +299,20 @@ function updateJourneys(
   legs: JourneyLeg[],
   selectedLegId: string | null,
   sidebarOpen: boolean,
+  pathStyle: RailPathStyle,
   onSelectLeg: (id: string) => void,
 ) {
   const railSource = map.getSource(RAIL_SOURCE);
   const placeSource = map.getSource(PLACE_SOURCE);
 
-  (railSource as GeoJSONSource | undefined)?.setData(railFeatures(legs));
+  (railSource as GeoJSONSource | undefined)?.setData(railFeatures(legs, pathStyle));
   (placeSource as GeoJSONSource | undefined)?.setData(placeFeatures(legs));
-  overlay.setProps({ layers: journeyOverlayLayers(legs, selectedLegId, onSelectLeg) });
-  fitJourneys(map, legs, selectedLegId, sidebarOpen);
+  overlay.setProps({ layers: journeyOverlayLayers(legs, selectedLegId, onSelectLeg, pathStyle) });
+  fitJourneys(map, legs, selectedLegId, sidebarOpen, pathStyle);
 }
 
 function addJourneyLayers(map: MapLibreMap) {
-  map.addSource(RAIL_SOURCE, { type: "geojson", data: railFeatures([]) });
+  map.addSource(RAIL_SOURCE, { type: "geojson", data: railFeatures([], "actual") });
   map.addSource(PLACE_SOURCE, { type: "geojson", data: placeFeatures([]) });
 
   map.addLayer({
@@ -307,11 +351,13 @@ export default function JourneyMap({
   selectedLegId = null,
   onSelectLeg,
   sidebarOpen = true,
+  railPathStyle = "actual",
 }: {
   legs: JourneyLeg[];
   selectedLegId?: string | null;
   onSelectLeg?: (id: string) => void;
   sidebarOpen?: boolean;
+  railPathStyle?: RailPathStyle;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -319,6 +365,7 @@ export default function JourneyMap({
   const legsRef = useRef(legs);
   const selectedLegIdRef = useRef(selectedLegId);
   const sidebarOpenRef = useRef(sidebarOpen);
+  const railPathStyleRef = useRef(railPathStyle);
   const onSelectLegRef = useRef(onSelectLeg);
   const [mapError, setMapError] = useState<string | null>(null);
 
@@ -326,13 +373,14 @@ export default function JourneyMap({
     legsRef.current = legs;
     selectedLegIdRef.current = selectedLegId;
     sidebarOpenRef.current = sidebarOpen;
+    railPathStyleRef.current = railPathStyle;
     onSelectLegRef.current = onSelectLeg;
     const map = mapRef.current;
     const overlay = overlayRef.current;
     if (map && overlay && map.getSource(RAIL_SOURCE)) {
-      updateJourneys(map, overlay, legs, selectedLegId, sidebarOpen, (id) => onSelectLegRef.current?.(id));
+      updateJourneys(map, overlay, legs, selectedLegId, sidebarOpen, railPathStyle, (id) => onSelectLegRef.current?.(id));
     }
-  }, [legs, onSelectLeg, selectedLegId, sidebarOpen]);
+  }, [legs, onSelectLeg, railPathStyle, selectedLegId, sidebarOpen]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -355,7 +403,7 @@ export default function JourneyMap({
 
     const overlay = new MapboxOverlay({
       interleaved: false,
-      layers: journeyOverlayLayers([], null, (id) => onSelectLegRef.current?.(id)),
+      layers: journeyOverlayLayers([], null, (id) => onSelectLegRef.current?.(id), railPathStyleRef.current),
     });
     mapRef.current = map;
     overlayRef.current = overlay;
@@ -371,6 +419,7 @@ export default function JourneyMap({
         legsRef.current,
         selectedLegIdRef.current,
         sidebarOpenRef.current,
+        railPathStyleRef.current,
         (id) => onSelectLegRef.current?.(id),
       );
       requestAnimationFrame(() => map.resize());

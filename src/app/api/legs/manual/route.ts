@@ -1,5 +1,6 @@
 import type { JourneyLeg, Place, TravelMode } from "@/lib/domain";
 import { getPersistenceMode, saveJourney } from "@/lib/journey-repository";
+import { fetchRailGeometry } from "@/lib/rail-geometry";
 
 type ManualLegBody = {
   id?: string;
@@ -45,6 +46,8 @@ async function persistManualLeg(body: ManualLegBody | null, editing: boolean) {
     return Response.json({ error: "Choose two different known places." }, { status: 400 });
   }
 
+  const railRoute = body.mode === "rail" ? await fetchRailGeometry(origin, destination) : null;
+
   const leg: JourneyLeg = {
     id: editing ? body.id!.trim() : `manual-${crypto.randomUUID()}`,
     mode: body.mode,
@@ -54,10 +57,11 @@ async function persistManualLeg(body: ManualLegBody | null, editing: boolean) {
     origin,
     destination,
     distanceKm: distanceBetween(origin.coordinates, destination.coordinates),
-    geometry: [origin.coordinates, destination.coordinates],
+    railDistanceKm: railRoute?.distanceKm,
+    geometry: railRoute?.geometry ?? [origin.coordinates, destination.coordinates],
     source: "manual",
     createdAt: editing && isTimestamp(body.createdAt) ? body.createdAt : new Date().toISOString(),
-    stops: [
+    stops: railRoute?.stops ?? [
       { place: origin, sequence: 1, boarded: true },
       { place: destination, sequence: 2, boarded: true },
     ],

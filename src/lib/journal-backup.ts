@@ -63,6 +63,10 @@ export function isJourneyLeg(value: unknown): value is JourneyLeg {
     typeof value.distanceKm === "number" &&
     Number.isFinite(value.distanceKm) &&
     value.distanceKm >= 0 &&
+    (value.railDistanceKm === undefined ||
+      (typeof value.railDistanceKm === "number" &&
+        Number.isFinite(value.railDistanceKm) &&
+        value.railDistanceKm >= 0)) &&
     Array.isArray(value.geometry) &&
     value.geometry.every(isCoordinate) &&
     (value.source === "lookup" || value.source === "manual") &&

@@ -8,6 +8,7 @@ export function calculateJourneyStats(legs: JourneyLeg[]): TravelStats {
 
   for (const leg of legs) {
     for (const stop of leg.stops) {
+      if (!stop.boarded) continue;
       countries.add(stop.place.country);
       places.add(stop.place.id);
     }

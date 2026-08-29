@@ -57,6 +57,31 @@ test("calculates first, last, and busiest travel periods", () => {
   assert.equal(stats.distanceKm, 400);
 });
 
+test("counts only boarded stops toward places and countries", () => {
+  const leg = journey("with-calling-points", "2026-06-01");
+  leg.stops = [
+    ...leg.stops,
+    {
+      place: {
+        id: "pass-through",
+        kind: "station",
+        name: "Pass Through",
+        city: "Pass Through",
+        country: "",
+        code: "",
+        coordinates: [10.5, 50.5],
+      },
+      sequence: 3,
+      boarded: false,
+    },
+  ];
+
+  const stats = calculateJourneyStats([leg]);
+
+  assert.equal(stats.places, 2);
+  assert.equal(stats.countries, 2);
+});
+
 test("returns empty time stats for an empty journal", () => {
   const stats = calculateJourneyStats([]);
 

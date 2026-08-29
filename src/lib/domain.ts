@@ -30,6 +30,7 @@ export type JourneyLeg = {
   origin: Place;
   destination: Place;
   distanceKm: number;
+  railDistanceKm?: number;
   geometry: Coordinate[];
   source: "lookup" | "manual";
   createdAt: string;

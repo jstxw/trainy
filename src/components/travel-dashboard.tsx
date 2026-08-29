@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type FormEvent,
 } from "react";
 import {
@@ -17,23 +16,23 @@ import {
   Check,
   ChevronRight,
   Cloud,
-  Download,
   HardDrive,
   Map as MapIcon,
   MapPin,
   PanelLeftClose,
   Pencil,
   Plane,
-  Plus,
   Route,
+  MoveUpRight,
   Search,
+  Spline,
   TrainFront,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 import { MapShell } from "@/components/map-shell";
+import type { RailPathStyle } from "@/components/journey-map";
 import type {
   JourneyLeg,
   PersistenceMode,
@@ -42,17 +41,33 @@ import type {
   TravelStats,
 } from "@/lib/domain";
 import {
-  createJournalBackup,
   isJourneyLeg,
   JOURNAL_STORAGE_KEY,
-  mergeJourneys,
-  parseJournalBackup,
 } from "@/lib/journal-backup";
 import { calculateJourneyStats } from "@/lib/journey-stats";
 import { estimatedRailDistance } from "@/lib/journey-distance";
 
 type ModeFilter = "all" | TravelMode;
 type PanelView = "journal" | "detail" | "add" | "edit";
+
+const PATH_STYLE_STORAGE_KEY = "rail-log:path-style:v1";
+const ROUTE_REFRESH_STORAGE_KEY = "rail-log:route-refresh:v1";
+
+// Rail legs saved before route lookup existed carry a straight line and no
+// calling points; re-saving them through the manual endpoint backfills both.
+function needsRouteRefresh(leg: JourneyLeg) {
+  return (
+    leg.mode === "rail" &&
+    leg.source === "manual" &&
+    (leg.railDistanceKm === undefined || leg.stops.length <= 2)
+  );
+}
+
+function formatRailDistance(leg: JourneyLeg) {
+  return leg.railDistanceKm !== undefined
+    ? `${leg.railDistanceKm.toLocaleString("en-GB")}`
+    : `~${estimatedRailDistance(leg.distanceKm).toLocaleString("en-GB")}`;
+}
 
 function formatDate(value: string, long = false) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -75,12 +90,6 @@ function formatMonth(value: string) {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${value}-01T12:00:00.000Z`));
-}
-
-function journeyYearLabel(legs: JourneyLeg[]) {
-  const years = new Set(legs.map((leg) => leg.travelDate.slice(0, 4)));
-  if (years.size === 1) return `${Array.from(years)[0]} passport`;
-  return "All-time passport";
 }
 
 function PlaceCombobox({
@@ -256,14 +265,12 @@ function PlaceCombobox({
 
 function AddJourney({
   onSave,
-  onBack,
   persistence,
   initialLeg,
   previousLeg,
   recentPlaces,
 }: {
   onSave: (leg: JourneyLeg) => void;
-  onBack: () => void;
   persistence: PersistenceMode;
   initialLeg?: JourneyLeg;
   previousLeg?: JourneyLeg | null;
@@ -321,9 +328,6 @@ function AddJourney({
   return (
     <div className="panel-view panel-view--form">
       <div className="panel-view__header">
-        <button className="icon-button" type="button" onClick={onBack} aria-label="Back to journeys">
-          <ArrowLeft size={19} />
-        </button>
         <div>
           <span className="section-label">{initialLeg ? "Update entry" : "New entry"}</span>
           <h1>{initialLeg ? "Edit journey" : "Add a journey"}</h1>
@@ -465,7 +469,7 @@ function JourneyDetail({
           <strong>{leg.distanceKm.toLocaleString("en-GB")} km</strong>
           <small>
             {leg.mode === "rail"
-              ? `~${estimatedRailDistance(leg.distanceKm).toLocaleString("en-GB")} km by rail`
+              ? `${formatRailDistance(leg)} km by rail`
               : "Direct great-circle"}
           </small>
         </div>
@@ -481,9 +485,9 @@ function JourneyDetail({
         <ol>
           {stops.map((stop, index) => (
             <li key={`${stop.place.id}-${stop.sequence}`}>
-              <time>{formatTime(stop.departure ?? stop.arrival)}</time>
+              {(stop.departure ?? stop.arrival) && <time>{formatTime(stop.departure ?? stop.arrival)}</time>}
               <span className="calling-points__track" aria-hidden="true"><i /></span>
-              <div><strong>{stop.place.name}</strong><span>{stop.place.city} · {stop.place.country}</span></div>
+              <div><strong>{stop.place.name}</strong><span>{stop.place.city}{stop.place.country && ` · ${stop.place.country}`}</span></div>
               {(index === 0 || index === stops.length - 1) && <small>{index === 0 ? "DEPART" : "ARRIVE"}</small>}
             </li>
           ))}
@@ -508,9 +512,7 @@ function JourneyDetail({
   );
 }
 
-function JourneyJournal({
-  legs,
-  stats,
+function JourneyControls({
   mode,
   query,
   dateFrom,
@@ -521,16 +523,82 @@ function JourneyJournal({
   onDateFromChange,
   onDateToChange,
   onClearDates,
-  onSelect,
-  onAdd,
 }: {
-  legs: JourneyLeg[];
-  stats: TravelStats;
   mode: ModeFilter;
   query: string;
   dateFrom: string;
   dateTo: string;
   dateBounds: { min: string; max: string } | null;
+  onModeChange: (mode: ModeFilter) => void;
+  onQueryChange: (query: string) => void;
+  onDateFromChange: (date: string) => void;
+  onDateToChange: (date: string) => void;
+  onClearDates: () => void;
+}) {
+  return (
+    <div className="journal-controls">
+      <label className="journey-search">
+        <Search size={16} aria-hidden="true" />
+        <span className="sr-only">Search journeys</span>
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search journeys" />
+        {query && <button type="button" onClick={() => onQueryChange("")} aria-label="Clear search"><X size={14} /></button>}
+      </label>
+      <div className="mode-switch" aria-label="Filter journeys by mode">
+        {["all", "rail", "air"].map((filterMode) => (
+          <button
+            type="button"
+            key={filterMode}
+            className={mode === filterMode ? "is-active" : ""}
+            aria-pressed={mode === filterMode}
+            onClick={() => onModeChange(filterMode as ModeFilter)}
+          >
+            {filterMode === "rail" && <TrainFront size={13} />}
+            {filterMode === "air" && <Plane size={13} />}
+            {filterMode === "all" ? "All" : filterMode === "rail" ? "Rail" : "Air"}
+          </button>
+        ))}
+      </div>
+      <div className="date-filter" aria-label="Filter journeys by travel date">
+        <CalendarDays size={15} aria-hidden="true" />
+        <label>
+          <span className="date-filter__label">From</span>
+          <input type="date" value={dateFrom} min={dateBounds?.min} max={dateTo || dateBounds?.max} disabled={!dateBounds} onChange={(event) => onDateFromChange(event.target.value)} />
+        </label>
+        <label>
+          <span className="date-filter__label">To</span>
+          <input type="date" value={dateTo} min={dateFrom || dateBounds?.min} max={dateBounds?.max} disabled={!dateBounds} onChange={(event) => onDateToChange(event.target.value)} />
+        </label>
+        {(dateFrom || dateTo) && dateBounds && (
+          <button type="button" onClick={onClearDates} aria-label="Clear date filter"><X size={14} /></button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function JourneyJournal({
+  legs,
+  stats,
+  query,
+  dateBounds,
+  mode,
+  dateFrom,
+  dateTo,
+  onModeChange,
+  onQueryChange,
+  onDateFromChange,
+  onDateToChange,
+  onClearDates,
+  onSelect,
+  onAdd,
+}: {
+  legs: JourneyLeg[];
+  stats: TravelStats;
+  query: string;
+  dateBounds: { min: string; max: string } | null;
+  mode: ModeFilter;
+  dateFrom: string;
+  dateTo: string;
   onModeChange: (mode: ModeFilter) => void;
   onQueryChange: (query: string) => void;
   onDateFromChange: (date: string) => void;
@@ -542,10 +610,8 @@ function JourneyJournal({
   return (
     <div className="panel-view panel-view--journal">
       <section className="passport-summary">
-        <span className="section-label">{journeyYearLabel(legs)}</span>
         <div className="passport-summary__title">
-          <h1>Your journeys</h1>
-          <button className="add-button" type="button" onClick={onAdd}><Plus size={16} /> Add</button>
+          <h1>Your Passport</h1>
         </div>
         <div className="passport-stats" aria-label="Travel summary">
           <div><strong>{stats.journeys}</strong><span>Journeys</span></div>
@@ -563,68 +629,26 @@ function JourneyJournal({
         </div>
       </section>
 
-      <div className="journal-controls">
-        <label className="journey-search">
-          <Search size={16} aria-hidden="true" />
-          <span className="sr-only">Search journeys</span>
-          <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search train, city or station" />
-          {query && <button type="button" onClick={() => onQueryChange("")} aria-label="Clear search"><X size={14} /></button>}
-        </label>
-        <div className="mode-switch" aria-label="Filter journeys by mode">
-          {(["all", "rail", "air"] as const).map((filterMode) => (
-            <button
-              type="button"
-              key={filterMode}
-              className={mode === filterMode ? "is-active" : ""}
-              aria-pressed={mode === filterMode}
-              onClick={() => onModeChange(filterMode)}
-            >
-              {filterMode === "rail" && <TrainFront size={13} />}
-              {filterMode === "air" && <Plane size={13} />}
-              {filterMode === "all" ? "All" : filterMode === "rail" ? "Rail" : "Air"}
-            </button>
-          ))}
-        </div>
-        <div className="date-filter" aria-label="Filter journeys by travel date">
-          <CalendarDays size={15} aria-hidden="true" />
-          <label>
-            <span className="sr-only">From date</span>
-            <input
-              type="date"
-              value={dateFrom}
-              min={dateBounds?.min}
-              max={dateTo || dateBounds?.max}
-              disabled={!dateBounds}
-              onChange={(event) => onDateFromChange(event.target.value)}
-            />
-          </label>
-          <span aria-hidden="true">—</span>
-          <label>
-            <span className="sr-only">To date</span>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom || dateBounds?.min}
-              max={dateBounds?.max}
-              disabled={!dateBounds}
-              onChange={(event) => onDateToChange(event.target.value)}
-            />
-          </label>
-          {(dateFrom !== dateBounds?.min || dateTo !== dateBounds?.max) && dateBounds && (
-            <button type="button" onClick={onClearDates} aria-label="Clear date filter"><X size={14} /></button>
-          )}
-        </div>
-      </div>
+      <JourneyControls
+        mode={mode}
+        query={query}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        dateBounds={dateBounds}
+        onModeChange={onModeChange}
+        onQueryChange={onQueryChange}
+        onDateFromChange={onDateFromChange}
+        onDateToChange={onDateToChange}
+        onClearDates={onClearDates}
+      />
 
       <section className="journey-board" aria-labelledby="journeys-title">
         <div className="section-heading section-heading--board">
-          <div><span className="section-label">Journal</span><h2 id="journeys-title">Recent journeys</h2></div>
-          <span>{legs.length} shown</span>
+          <div><h2 id="journeys-title">Recent journeys</h2></div>
         </div>
 
         {legs.length === 0 ? (
           <div className="journal-empty">
-            <span><Route size={21} /></span>
             <strong>No journeys here</strong>
             <p>{query || dateBounds ? "Try different filters." : "Add a journey to draw your first line."}</p>
             {!query && !dateBounds && <button type="button" onClick={onAdd}>Add journey</button>}
@@ -642,7 +666,7 @@ function JourneyJournal({
                   <time>{formatDate(leg.travelDate)}</time>
                   <small>
                     {leg.distanceKm.toLocaleString("en-GB")} direct
-                    {leg.mode === "rail" && ` · ~${estimatedRailDistance(leg.distanceKm).toLocaleString("en-GB")} rail`}
+                    {leg.mode === "rail" && ` · ${formatRailDistance(leg)} rail`}
                   </small>
                 </span>
                 <ChevronRight className="journey-row__chevron" size={16} aria-hidden="true" />
@@ -663,10 +687,21 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
   const [dateTo, setDateTo] = useState("");
   const [panelView, setPanelView] = useState<PanelView>("journal");
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
-  const [backupStatus, setBackupStatus] = useState("");
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [railPathStyle, setRailPathStyle] = useState<RailPathStyle>("actual");
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(PATH_STYLE_STORAGE_KEY);
+      if (saved === "straight" || saved === "actual") queueMicrotask(() => setRailPathStyle(saved));
+    } catch { /* The default route style still works. */ }
+  }, []);
+
+  function changeRailPathStyle(style: RailPathStyle) {
+    setRailPathStyle(style);
+    try { window.localStorage.setItem(PATH_STYLE_STORAGE_KEY, style); } catch { /* In-memory state still works. */ }
+  }
 
   useEffect(() => {
     try {
@@ -691,16 +726,71 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
           const data = (await response.json()) as { legs?: JourneyLeg[]; migrated?: number };
           if (!response.ok || !data.legs?.every(isJourneyLeg)) throw new Error("Migration failed");
           setLegs(data.legs);
-          setBackupStatus(data.migrated ? `Migrated ${data.migrated} journeys to Supabase.` : "Browser backup retained.");
         })
         .catch(() => {
           setLegs(validLegs);
-          setBackupStatus("Supabase migration failed; using the browser backup.");
         });
     } catch {
       // Ignore unavailable or malformed browser storage.
     }
   }, [initialLegs.length, persistence]);
+
+  const routeRefreshStartedRef = useRef(false);
+  const routeRefreshCancelledRef = useRef(false);
+  useEffect(() => {
+    routeRefreshCancelledRef.current = false;
+    return () => { routeRefreshCancelledRef.current = true; };
+  }, []);
+  useEffect(() => {
+    if (routeRefreshStartedRef.current || legs.length === 0) return;
+    routeRefreshStartedRef.current = true;
+
+    let attempted: Set<string>;
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(ROUTE_REFRESH_STORAGE_KEY) ?? "[]") as unknown;
+      attempted = new Set(Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []);
+    } catch {
+      attempted = new Set();
+    }
+
+    const staleLegs = legs.filter((leg) => needsRouteRefresh(leg) && !attempted.has(leg.id));
+    if (staleLegs.length === 0) return;
+
+    void (async () => {
+      for (const leg of staleLegs) {
+        if (routeRefreshCancelledRef.current) return;
+        attempted.add(leg.id);
+        try {
+          window.sessionStorage.setItem(ROUTE_REFRESH_STORAGE_KEY, JSON.stringify([...attempted]));
+        } catch { /* Refreshing still works; it just repeats next load. */ }
+
+        try {
+          const response = await fetch("/api/legs/manual", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: leg.id,
+              createdAt: leg.createdAt,
+              mode: leg.mode,
+              number: leg.number,
+              travelDate: leg.travelDate,
+              operator: leg.operator,
+              origin: leg.origin,
+              destination: leg.destination,
+            }),
+          });
+          const data = (await response.json()) as { leg?: JourneyLeg };
+          if (routeRefreshCancelledRef.current || !response.ok || !data.leg || !isJourneyLeg(data.leg)) continue;
+          const refreshed = data.leg;
+          setLegs((current) => {
+            const nextLegs = current.map((item) => item.id === refreshed.id ? refreshed : item);
+            saveLegs(nextLegs);
+            return nextLegs;
+          });
+        } catch { /* The existing leg keeps its straight line. */ }
+      }
+    })();
+  }, [legs]);
 
   const stats: TravelStats = useMemo(() => calculateJourneyStats(legs), [legs]);
   const dateBounds = useMemo(() => {
@@ -762,7 +852,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
   function selectLeg(leg: JourneyLeg) {
     setSelectedLegId(leg.id);
     setPanelView("detail");
-    setSidebarOpen(true);
+    setRightSidebarOpen(true);
   }
 
   function addLeg(leg: JourneyLeg) {
@@ -800,11 +890,9 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
     });
     const data = (await response.json()) as { leg?: JourneyLeg; error?: string };
     if (!response.ok || !data.leg || !isJourneyLeg(data.leg)) {
-      setBackupStatus(data.error || "Could not add the return journey.");
       throw new Error(data.error || "Could not add the return journey.");
     }
     addLeg(data.leg);
-    setBackupStatus(`Added return journey from ${leg.destination.city} to ${leg.origin.city}.`);
   }
 
   async function removeLeg(id: string) {
@@ -821,60 +909,27 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
       } catch {
         setLegs(previousLegs);
         saveLegs(previousLegs);
-        setBackupStatus("Could not delete from Supabase; the journey was restored.");
       }
-    }
-  }
-
-  function exportJournal() {
-    const backup = createJournalBackup(legs);
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `rail-log-${backup.exportedAt.slice(0, 10)}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setBackupStatus(`Exported ${legs.length} ${legs.length === 1 ? "journey" : "journeys"}.`);
-  }
-
-  async function importJournal(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    try {
-      const backup = parseJournalBackup(await file.text());
-      let nextLegs = importMode === "replace" ? backup.journeys : mergeJourneys(legs, backup.journeys);
-      if (persistence === "database") {
-        const response = await fetch("/api/legs/migrate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ journeys: nextLegs, replaceExisting: importMode === "replace" }),
-        });
-        const data = (await response.json()) as { legs?: JourneyLeg[]; error?: string };
-        if (!response.ok || !data.legs?.every(isJourneyLeg)) throw new Error(data.error || "Import failed");
-        nextLegs = data.legs;
-      }
-      saveLegs(nextLegs);
-      setLegs(nextLegs);
-      setBackupStatus(`${importMode === "replace" ? "Restored" : "Merged"} ${backup.journeys.length} journeys.`);
-    } catch (error) {
-      setBackupStatus(error instanceof Error ? error.message : "Could not import this backup.");
     }
   }
 
   return (
-    <main className={`map-workspace ${sidebarOpen ? "has-sidebar" : "is-map-only"}`}>
+    <main className={`map-workspace ${leftSidebarOpen ? "has-sidebar" : "is-map-only"}`}>
       <div className="map-canvas" aria-label="Journey map">
-        <MapShell legs={mapLegs} selectedLegId={selectedLegId} sidebarOpen={sidebarOpen} onSelectLeg={(id) => {
+        <MapShell legs={mapLegs} selectedLegId={selectedLegId} sidebarOpen={leftSidebarOpen} railPathStyle={railPathStyle} onSelectLeg={(id) => {
           const leg = legs.find((candidate) => candidate.id === id);
           if (leg) selectLeg(leg);
         }} />
 
-        {!sidebarOpen && (
-          <button className="show-sidebar" type="button" onClick={() => setSidebarOpen(true)}>
+        {!leftSidebarOpen && (
+          <button className="show-sidebar show-sidebar--left" type="button" onClick={() => setLeftSidebarOpen(true)}>
             <BrandMark /><span>Open journeys</span>
+          </button>
+        )}
+
+        {!rightSidebarOpen && (
+          <button className="show-sidebar show-sidebar--right" type="button" onClick={() => setRightSidebarOpen(true)}>
+            <span>Add journey</span>
           </button>
         )}
 
@@ -883,62 +938,67 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
           <span><i className="map-status__air" /> {mode === "rail" ? 0 : mapLegs.filter((leg) => leg.mode === "air").length} air</span>
         </div>
 
+        <div className="map-path-toggle" role="group" aria-label="Rail route style">
+          <button
+            type="button"
+            className={railPathStyle === "straight" ? "is-active" : ""}
+            aria-pressed={railPathStyle === "straight"}
+            onClick={() => changeRailPathStyle("straight")}
+          >
+            <MoveUpRight size={12} /> Straight
+          </button>
+          <button
+            type="button"
+            className={railPathStyle === "actual" ? "is-active" : ""}
+            aria-pressed={railPathStyle === "actual"}
+            onClick={() => changeRailPathStyle("actual")}
+          >
+            <Spline size={12} /> Tracks
+          </button>
+        </div>
+
         {legs.length === 0 && (
           <div className="map-empty-state">
             <span><Route size={22} /></span><strong>Your map is ready</strong><p>Add a journey to draw your first line.</p>
-            <button type="button" onClick={() => { setSidebarOpen(true); setPanelView("add"); }}>Add journey <ArrowRight size={14} /></button>
+            <button type="button" onClick={() => { setRightSidebarOpen(true); setPanelView("add"); }}>Add journey <ArrowRight size={14} /></button>
           </div>
         )}
       </div>
 
-      {sidebarOpen && (
-        <aside className="journey-sidebar" aria-label="Journey information">
-          <header className="sidebar-header">
-            <button className="brand" type="button" onClick={showJournal} aria-label="Rail Log journeys"><BrandMark /><span>rail log</span></button>
-            <div className="sidebar-header__actions">
-              <span className="sync-indicator" title={persistence === "database" ? "Supabase journal" : "Local journal"}><i /> {persistence === "database" ? "Synced" : "Private"}</span>
-              <button className="icon-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)} aria-label="Hide journey panel"><PanelLeftClose size={18} /></button>
-            </div>
-          </header>
-
+      <aside className={`journey-sidebar ${leftSidebarOpen ? "" : "journey-sidebar--closed-left"}`} aria-label="Journey information" aria-hidden={!leftSidebarOpen}>
+          <button className="icon-button sidebar-close" type="button" onClick={() => setLeftSidebarOpen(false)} aria-label="Hide left journey panel"><PanelLeftClose size={18} /></button>
           <div className="sidebar-scroll">
-            {panelView === "journal" && (
-              <JourneyJournal
-                legs={visibleLegs}
-                stats={stats}
-                mode={mode}
-                query={query}
-                dateFrom={effectiveDateFrom}
-                dateTo={effectiveDateTo}
-                dateBounds={dateBounds}
-                onModeChange={(nextMode) => { setMode(nextMode); setSelectedLegId(null); }}
-                onQueryChange={setQuery}
-                onDateFromChange={setDateFrom}
-                onDateToChange={setDateTo}
-                onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
-                onSelect={selectLeg}
-                onAdd={() => setPanelView("add")}
-              />
-            )}
-            {panelView === "add" && (
-              <AddJourney
-                onSave={addLeg}
-                onBack={showJournal}
-                persistence={persistence}
-                previousLeg={latestLeg}
-                recentPlaces={recentPlaces}
-              />
-            )}
-            {panelView === "edit" && selectedLeg && (
+            <JourneyJournal
+              legs={visibleLegs}
+              stats={stats}
+              query={query}
+              dateBounds={dateBounds}
+              mode={mode}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onModeChange={(nextMode) => { setMode(nextMode); setSelectedLegId(null); }}
+              onQueryChange={setQuery}
+              onDateFromChange={setDateFrom}
+              onDateToChange={setDateTo}
+              onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
+              onSelect={selectLeg}
+              onAdd={() => setPanelView("add")}
+            />
+          </div>
+
+      </aside>
+
+      <aside className={`journey-sidebar journey-sidebar--right ${rightSidebarOpen ? "" : "journey-sidebar--closed-right"}`} aria-label="Add journey" aria-hidden={!rightSidebarOpen}>
+          <button className="icon-button sidebar-close" type="button" onClick={() => setRightSidebarOpen(false)} aria-label="Hide right journey panel"><PanelLeftClose size={18} /></button>
+          <div className="sidebar-scroll">
+            {panelView === "edit" && selectedLeg ? (
               <AddJourney
                 onSave={updateLeg}
-                onBack={() => setPanelView("detail")}
                 persistence={persistence}
                 initialLeg={selectedLeg}
                 recentPlaces={recentPlaces}
               />
-            )}
-            {panelView === "detail" && selectedLeg && (
+            ) : panelView === "detail" && selectedLeg ? (
               <JourneyDetail
                 leg={selectedLeg}
                 onBack={showJournal}
@@ -946,22 +1006,16 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
                 onEdit={() => setPanelView("edit")}
                 onReverse={() => reverseLeg(selectedLeg)}
               />
+            ) : (
+              <AddJourney
+                onSave={addLeg}
+                persistence={persistence}
+                previousLeg={latestLeg}
+                recentPlaces={recentPlaces}
+              />
             )}
           </div>
-
-          <footer className="sidebar-footer">
-            <span className="backup-status" role="status">{backupStatus}</span>
-            <div className="backup-actions">
-              <select value={importMode} onChange={(event) => setImportMode(event.target.value as "merge" | "replace")} aria-label="Journal import mode">
-                <option value="merge">Merge</option><option value="replace">Replace</option>
-              </select>
-              <button type="button" onClick={exportJournal}><Download size={14} /> Export</button>
-              <button type="button" onClick={() => importInputRef.current?.click()}><Upload size={14} /> Import</button>
-              <input ref={importInputRef} type="file" accept="application/json,.json" onChange={importJournal} hidden />
-            </div>
-          </footer>
-        </aside>
-      )}
+      </aside>
 
       <div className="mobile-map-label" aria-hidden="true"><MapIcon size={14} /> Map</div>
     </main>
