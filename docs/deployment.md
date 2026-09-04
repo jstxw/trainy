@@ -1,47 +1,84 @@
 # Deployment
 
-## Public portfolio deployment
+Trainy runs in two modes from the same build.
 
-The safe default is a Vercel deployment without Supabase environment variables.
-Import the Git repository, keep the standard Next.js build command, and deploy.
-Every visitor then receives an empty journal whose data stays in their own
-browser. Export/import remains available for backup.
+- **Guest mode.** No Supabase variables set. Every visitor gets an empty journal
+  that lives in their own browser. Export/import remains available for backup.
+- **Multi-user mode.** Supabase variables set. Visitors can still use the app as
+  guests, and anyone who signs in gets a private journal in Postgres, isolated
+  by row-level security. Their browser journal is offered for import on first
+  sign-in.
 
-The station and airport catalogs are included in the place-search function by
-`outputFileTracingIncludes` in `next.config.ts`. After deployment, verify:
+## Environment variables
 
-```text
-GET /api/legs                         -> storage: "client"
-GET /api/places/search?kind=station&q=Berlin
-GET /api/places/search?kind=airport&q=FRA
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Host, public | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Host, public | Anon key, or a newer `sb_publishable_...` key. Safe in the browser: RLS protects data, not the key. |
+| `NEXT_PUBLIC_CARTO_API_KEY` | Host, public | Basemap tiles. |
+| `DATABASE_URL` | Your machine only | Used by the psql commands below. Never set it on the host. |
+
+The application no longer reads `SUPABASE_SERVICE_ROLE_KEY`. Remove it from any
+hosting environment that still has it.
+
+## Database setup
+
+Run once per Supabase project, from a machine with `psql`:
+
+```sh
+psql "$DATABASE_URL" -f db/migrations/001_initial.sql
+psql "$DATABASE_URL" -f db/migrations/002_multi_tenant.sql
+psql "$DATABASE_URL" -f db/import-places.sql   # loads data/places.csv
 ```
 
-Check the map at desktop and mobile widths with WebGL enabled.
+`002_multi_tenant.sql` adds `legs.user_id`, enables RLS policies on `legs`,
+`leg_stops`, and `places`, and rewrites the RPCs so they run as the calling
+user. It fails on purpose if `legs` already holds rows without an owner.
 
-## Private durable deployment
+## Supabase Auth configuration
 
-For a single private journal backed by Supabase:
+In the Supabase dashboard:
 
-1. Create the Supabase project and run `db/migrations/001_initial.sql`.
-2. Load `data/places.csv` with `db/import-places.sql` through `psql`.
-3. Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as encrypted server-only
-   environment variables in the host.
-4. Protect the entire deployment with an authentication layer before exposing
-   it. The current application routes deliberately use the service role and do
-   not authenticate individual users.
-5. Deploy, open the app in the browser that holds the local journal, and verify
-   the one-time migration. Keep the local copy and export a JSON backup.
+1. **Authentication → Providers → Email.** Keep Email enabled. Magic links are
+   the only email flow the app uses; passwords are never collected.
+2. **Authentication → Providers → Google.** Enable it and paste the OAuth
+   client ID and secret from a Google Cloud OAuth client of type "Web
+   application". Add the Supabase callback URL shown in that panel to the
+   Google client's authorised redirect URIs.
+3. **Authentication → URL configuration.** Set the Site URL to your production
+   origin and add these to the redirect allow list:
+   - `http://localhost:3000/auth/callback`
+   - `https://<your-domain>/auth/callback`
 
-`src/app/page.tsx` calls Next.js `connection()` before reading the repository,
-so personal rows and runtime environment variables are not captured during the
-build.
+## Deploying
 
-## Not performed automatically
+Import the repository into Vercel (or any Node host), keep the standard Next.js
+build command, add the three public variables, and deploy. After deployment,
+verify:
 
-This repository does not contain Vercel or Supabase account credentials, so
-project creation, environment configuration, and the external deployment must
-be completed by the account owner. The local production build is the deployment
-gate:
+```text
+GET  /                              -> launch page (signed-in visitors are sent to /app)
+GET  /app                           -> dashboard, works signed out
+GET  /login                         -> magic link form and Google button
+GET  /api/legs                      -> storage: "client" when signed out
+GET  /api/places/search?kind=station&q=Berlin
+```
+
+Sign in with a magic link, add a journey, then open the site in a private
+window: the journey must not appear there. Sign in as a second user and confirm
+the journals are separate.
+
+The station and airport catalogs are included in the place-search function by
+`outputFileTracingIncludes` in `next.config.ts`. Check the map at desktop and
+mobile widths with WebGL enabled.
+
+## Local development
+
+Copy `.env.example` to `.env.local`. Without Supabase values the app runs in
+guest mode. With them, sign-in works against your project as long as the
+localhost callback is on the allow list.
+
+The local gate before pushing:
 
 ```sh
 npm test

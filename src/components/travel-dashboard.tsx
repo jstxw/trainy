@@ -30,6 +30,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { AccountChip, type Account } from "@/components/account-chip";
 import { MapShell } from "@/components/map-shell";
 import type { RailPathStyle } from "@/components/journey-map";
 import type {
@@ -868,6 +869,7 @@ function JourneyJournal({
   onClearDates,
   onSelect,
   onAdd,
+  account,
 }: {
   legs: JourneyLeg[];
   stats: TravelStats;
@@ -883,6 +885,7 @@ function JourneyJournal({
   onClearDates: () => void;
   onSelect: (leg: JourneyLeg) => void;
   onAdd: () => void;
+  account: Account;
 }) {
   const passport = mode === "rail"
     ? {
@@ -934,6 +937,7 @@ function JourneyJournal({
             <h1>{passport.title}</h1>
             <span className="passport-summary__subtitle">PASSPORT · PASS · PASAPORTE</span>
           </div>
+          <AccountChip account={account} />
         </div>
         <div className="passport-stats" aria-label="Travel summary">
           <div className="passport-stat">
@@ -1036,7 +1040,15 @@ function JourneyJournal({
   );
 }
 
-export function TravelDashboard({ initialLegs, persistence }: { initialLegs: JourneyLeg[]; persistence: PersistenceMode }) {
+export function TravelDashboard({
+  initialLegs,
+  persistence,
+  account = null,
+}: {
+  initialLegs: JourneyLeg[];
+  persistence: PersistenceMode;
+  account?: Account;
+}) {
   const [legs, setLegs] = useState(initialLegs);
   const [mode, setMode] = useState<ModeFilter>("all");
   const [query, setQuery] = useState("");
@@ -1324,7 +1336,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
               aria-pressed={railPathStyle === "straight"}
               onClick={() => changeRailPathStyle("straight")}
             >
-              <MoveUpRight size={14} /> Straight
+              <MoveUpRight size={12} /> Straight
             </button>
             <button
               type="button"
@@ -1332,7 +1344,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
               aria-pressed={railPathStyle === "actual"}
               onClick={() => changeRailPathStyle("actual")}
             >
-              <Spline size={14} /> Tracks
+              <Spline size={12} /> Tracks
             </button>
           </div>
         </div>
@@ -1361,6 +1373,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
             onDateFromChange={setDateFrom}
             onDateToChange={setDateTo}
             onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
+            account={account}
             onSelect={selectLeg}
             onAdd={() => { setPanelView("add"); setJourneyDialogOpen(true); }}
           />

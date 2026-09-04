@@ -165,3 +165,18 @@ Supabase dashboard:
 - SQL is reviewed, not executed here. Documented command:
   `psql "$DATABASE_URL" -f db/migrations/002_multi_tenant.sql`.
 - Gate: `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`.
+
+## Deviations recorded during implementation
+
+- No browser Supabase client. Google sign-in starts from a server action
+  (`signInWithGoogle`) that calls `signInWithOAuth` and redirects to the
+  provider URL, so the PKCE verifier lives in the cookie session like the
+  magic link flow. `src/lib/supabase-browser.ts` was not kept.
+- Launch layout is a full-bleed map with a floating boarding-pass ticket
+  (`.ticket`) rather than two fixed columns. The ticket occupies the left
+  third on desktop and pins to the bottom on phones. Same content, same
+  one-viewport rule.
+- Launch styles live in `globals.css` alongside everything else instead of a
+  separate `launch.css`, matching the project's single-stylesheet convention.
+- `/login` types its `searchParams` inline because Next's generated route types
+  only knew `/` at the time of writing.
