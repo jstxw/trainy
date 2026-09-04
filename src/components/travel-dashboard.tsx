@@ -870,7 +870,6 @@ function JourneyJournal({
   onClearDates,
   onSelect,
   onAdd,
-  account,
 }: {
   legs: JourneyLeg[];
   stats: TravelStats;
@@ -886,7 +885,6 @@ function JourneyJournal({
   onClearDates: () => void;
   onSelect: (leg: JourneyLeg) => void;
   onAdd: () => void;
-  account: Account;
 }) {
   const passport = mode === "rail"
     ? {
@@ -938,7 +936,6 @@ function JourneyJournal({
             <h1>{passport.title}</h1>
             <span className="passport-summary__subtitle">PASSPORT · PASS · PASAPORTE</span>
           </div>
-          <AccountChip account={account} />
         </div>
         <div className="passport-stats" aria-label="Travel summary">
           <div className="passport-stat">
@@ -1320,6 +1317,10 @@ export function TravelDashboard({
           if (leg) selectLeg(leg);
         }} />
 
+        <div className="map-account">
+          <AccountChip account={account} />
+        </div>
+
         {!leftSidebarOpen && (
           <button className="show-sidebar show-sidebar--left" type="button" onClick={() => setLeftSidebarOpen(true)}>
             <span>Open journeys</span>
@@ -1401,7 +1402,6 @@ export function TravelDashboard({
             onDateFromChange={setDateFrom}
             onDateToChange={setDateTo}
             onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
-            account={account}
             onSelect={selectLeg}
             onAdd={() => { setPanelView("add"); setJourneyDialogOpen(true); }}
           />
