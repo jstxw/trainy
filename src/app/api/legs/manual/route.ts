@@ -68,12 +68,13 @@ async function persistManualLeg(body: ManualLegBody | null, editing: boolean) {
   };
 
   await saveJourney(leg);
+  const storage = await getPersistenceMode();
 
   return Response.json(
     {
       leg,
-      storage: getPersistenceMode(),
-      note: getPersistenceMode() === "database"
+      storage,
+      note: storage === "database"
         ? "Saved to Supabase and retained as a browser backup."
         : "The browser stores this journey locally after confirmation.",
     },

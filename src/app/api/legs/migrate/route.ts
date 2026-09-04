@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (getPersistenceMode() === "client") {
+  if ((await getPersistenceMode()) === "client") {
     return Response.json({ migrated: 0, legs: body.journeys, storage: "client" });
   }
 

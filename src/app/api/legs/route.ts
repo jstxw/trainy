@@ -11,15 +11,15 @@ export async function GET(request: Request) {
   }
 
   const legs = await getLegs(mode as TravelMode | undefined);
-  return Response.json({ legs, storage: getPersistenceMode() });
+  return Response.json({ legs, storage: await getPersistenceMode() });
 }
 
 export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id")?.trim();
   if (!id) return Response.json({ error: "Journey id is required." }, { status: 400 });
 
-  await deleteJourney(id);
-  return Response.json({ deleted: id, storage: getPersistenceMode() });
+  const deleted = await deleteJourney(id);
+  return Response.json({ deleted: deleted ? id : null, storage: await getPersistenceMode() });
 }
 
 export async function POST(request: Request) {
