@@ -1,8 +1,8 @@
 <div align="center">
 
-# Rail Log
+# Tainy
 
-### A private, map-first passport for every train and flight you take.
+### A private, map-first passport for every European train and flight you take.
 
 Record journeys, trace rail routes and flight arcs across the map, and watch a
 personal travel passport grow over time.
