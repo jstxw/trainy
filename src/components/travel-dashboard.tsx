@@ -14,12 +14,14 @@ import {
   ArrowRight,
   CalendarDays,
   Check,
+  ChevronLeft,
   ChevronRight,
   Map as MapIcon,
   MapPin,
   PanelLeftClose,
   Pencil,
   Plane,
+  Plus,
   Route,
   MoveUpRight,
   Search,
@@ -377,6 +379,149 @@ function OperatorCombobox({
   );
 }
 
+const CALENDAR_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function parseCalendarDate(value?: string) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day, 12);
+}
+
+function calendarDateValue(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function DatePicker({
+  value,
+  onChange,
+  min,
+  max,
+  disabled = false,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  min?: string;
+  max?: string;
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  const calendarId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedDate = parseCalendarDate(value);
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const initial = selectedDate ?? parseCalendarDate(max) ?? parseCalendarDate(min) ?? new Date();
+    return new Date(initial.getFullYear(), initial.getMonth(), 1, 12);
+  });
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeCalendar(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("mousedown", closeCalendar);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeCalendar);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  const monthStart = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1, 12);
+  const mondayOffset = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(monthStart.getDate() - mondayOffset);
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(gridStart);
+    day.setDate(gridStart.getDate() + index);
+    return day;
+  });
+  const todayValue = calendarDateValue(new Date());
+
+  function changeMonth(offset: number) {
+    setVisibleMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1, 12));
+  }
+
+  function openCalendar() {
+    if (disabled) return;
+    const current = selectedDate ?? parseCalendarDate(max) ?? parseCalendarDate(min) ?? new Date();
+    setVisibleMonth(new Date(current.getFullYear(), current.getMonth(), 1, 12));
+    setOpen((currentOpen) => !currentOpen);
+  }
+
+  return (
+    <div className="date-picker" ref={rootRef}>
+      <button
+        className="date-picker__trigger"
+        type="button"
+        onClick={openCalendar}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? calendarId : undefined}
+      >
+        <span className={value ? "" : "date-picker__placeholder"}>
+          {selectedDate
+            ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(selectedDate)
+            : "yyyy-mm-dd"}
+        </span>
+        <CalendarDays size={15} aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div className="date-picker__popover" id={calendarId} role="dialog" aria-label={`${ariaLabel} calendar`}>
+          <div className="date-picker__header">
+            <strong>{new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(visibleMonth)}</strong>
+            <div>
+              <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month"><ChevronLeft size={17} /></button>
+              <button type="button" onClick={() => changeMonth(1)} aria-label="Next month"><ChevronRight size={17} /></button>
+            </div>
+          </div>
+          <div className="date-picker__weekdays" aria-hidden="true">
+            {CALENDAR_WEEKDAYS.map((weekday) => <span key={weekday}>{weekday.slice(0, 1)}</span>)}
+          </div>
+          <div className="date-picker__grid" role="grid">
+            {calendarDays.map((day) => {
+              const dayValue = calendarDateValue(day);
+              const outsideMonth = day.getMonth() !== visibleMonth.getMonth();
+              const unavailable = Boolean((min && dayValue < min) || (max && dayValue > max));
+              const selected = dayValue === value;
+              return (
+                <button
+                  type="button"
+                  role="gridcell"
+                  key={dayValue}
+                  className={`${outsideMonth ? "is-outside " : ""}${selected ? "is-selected" : ""}`}
+                  disabled={unavailable}
+                  aria-label={new Intl.DateTimeFormat("en-GB", { dateStyle: "long" }).format(day)}
+                  aria-current={dayValue === todayValue ? "date" : undefined}
+                  aria-selected={selected}
+                  onClick={() => { onChange(dayValue); setOpen(false); }}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddJourney({
   onSave,
   initialLeg,
@@ -468,7 +613,7 @@ function AddJourney({
           </label>
           <label>
             <span className="field-label">Travel date</span>
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+            <DatePicker value={date} onChange={setDate} ariaLabel="Travel date" />
           </label>
         </div>
 
@@ -692,14 +837,13 @@ function JourneyControls({
         ))}
       </div>
       <div className="date-filter" aria-label="Filter journeys by travel date">
-        <CalendarDays size={15} aria-hidden="true" />
         <label>
           <span className="date-filter__label">From</span>
-          <input type="date" value={dateFrom} min={dateBounds?.min} max={dateTo || dateBounds?.max} disabled={!dateBounds} onChange={(event) => onDateFromChange(event.target.value)} />
+          <DatePicker value={dateFrom} min={dateBounds?.min} max={dateTo || dateBounds?.max} disabled={!dateBounds} onChange={onDateFromChange} ariaLabel="Filter from date" />
         </label>
         <label>
           <span className="date-filter__label">To</span>
-          <input type="date" value={dateTo} min={dateFrom || dateBounds?.min} max={dateBounds?.max} disabled={!dateBounds} onChange={(event) => onDateToChange(event.target.value)} />
+          <DatePicker value={dateTo} min={dateFrom || dateBounds?.min} max={dateBounds?.max} disabled={!dateBounds} onChange={onDateToChange} ariaLabel="Filter to date" />
         </label>
         {(dateFrom || dateTo) && dateBounds && (
           <button type="button" onClick={onClearDates} aria-label="Clear date filter"><X size={14} /></button>
@@ -901,7 +1045,7 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
   const [panelView, setPanelView] = useState<PanelView>("journal");
   const [selectedLegId, setSelectedLegId] = useState<string | null>(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [journeyDialogOpen, setJourneyDialogOpen] = useState(false);
   const [railPathStyle, setRailPathStyle] = useState<RailPathStyle>("actual");
 
   useEffect(() => {
@@ -947,6 +1091,17 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
       // Ignore unavailable or malformed browser storage.
     }
   }, [initialLegs.length, persistence]);
+
+  useEffect(() => {
+    if (!journeyDialogOpen) return;
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setJourneyDialogOpen(false);
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [journeyDialogOpen]);
 
   const routeRefreshStartedRef = useRef(false);
   const routeRefreshCancelledRef = useRef(false);
@@ -1063,12 +1218,13 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
   function showJournal() {
     setPanelView("journal");
     setSelectedLegId(null);
+    setJourneyDialogOpen(false);
   }
 
   function selectLeg(leg: JourneyLeg) {
     setSelectedLegId(leg.id);
     setPanelView("detail");
-    setRightSidebarOpen(true);
+    setJourneyDialogOpen(true);
   }
 
   function addLeg(leg: JourneyLeg) {
@@ -1143,40 +1299,48 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
           </button>
         )}
 
-        {!rightSidebarOpen && (
-          <button className="show-sidebar show-sidebar--right" type="button" onClick={() => setRightSidebarOpen(true)}>
-            <span>Add journey</span>
+        {!journeyDialogOpen && (
+          <button
+            className="show-sidebar show-sidebar--right"
+            type="button"
+            onClick={() => { setPanelView("add"); setJourneyDialogOpen(true); }}
+            aria-label="Add journey"
+            title="Add journey"
+          >
+            <Plus size={24} strokeWidth={2.25} aria-hidden="true" />
           </button>
         )}
 
-        <div className="map-status" aria-live="polite">
-          <span><i className="map-status__rail" /> {mode === "air" ? 0 : mapLegs.filter((leg) => leg.mode === "rail").length} rail</span>
-          <span><i className="map-status__air" /> {mode === "rail" ? 0 : mapLegs.filter((leg) => leg.mode === "air").length} air</span>
-        </div>
+        <div className="map-controls">
+          <div className="map-status" aria-live="polite">
+            <span><i className="map-status__rail" /> {mode === "air" ? 0 : mapLegs.filter((leg) => leg.mode === "rail").length} rail</span>
+            <span><i className="map-status__air" /> {mode === "rail" ? 0 : mapLegs.filter((leg) => leg.mode === "air").length} air</span>
+          </div>
 
-        <div className="map-path-toggle" role="group" aria-label="Rail route style">
-          <button
-            type="button"
-            className={railPathStyle === "straight" ? "is-active" : ""}
-            aria-pressed={railPathStyle === "straight"}
-            onClick={() => changeRailPathStyle("straight")}
-          >
-            <MoveUpRight size={12} /> Straight
-          </button>
-          <button
-            type="button"
-            className={railPathStyle === "actual" ? "is-active" : ""}
-            aria-pressed={railPathStyle === "actual"}
-            onClick={() => changeRailPathStyle("actual")}
-          >
-            <Spline size={12} /> Tracks
-          </button>
+          <div className="map-path-toggle" role="group" aria-label="Rail route style">
+            <button
+              type="button"
+              className={railPathStyle === "straight" ? "is-active" : ""}
+              aria-pressed={railPathStyle === "straight"}
+              onClick={() => changeRailPathStyle("straight")}
+            >
+              <MoveUpRight size={14} /> Straight
+            </button>
+            <button
+              type="button"
+              className={railPathStyle === "actual" ? "is-active" : ""}
+              aria-pressed={railPathStyle === "actual"}
+              onClick={() => changeRailPathStyle("actual")}
+            >
+              <Spline size={14} /> Tracks
+            </button>
+          </div>
         </div>
 
         {legs.length === 0 && (
           <div className="map-empty-state">
             <span><Route size={22} /></span><strong>Your map is ready</strong><p>Add a journey to draw your first line.</p>
-            <button type="button" onClick={() => { setRightSidebarOpen(true); setPanelView("add"); }}>Add journey <ArrowRight size={14} /></button>
+            <button type="button" onClick={() => { setJourneyDialogOpen(true); setPanelView("add"); }}>Add journey <ArrowRight size={14} /></button>
           </div>
         )}
       </div>
@@ -1198,38 +1362,49 @@ export function TravelDashboard({ initialLegs, persistence }: { initialLegs: Jou
             onDateToChange={setDateTo}
             onClearDates={() => { setDateFrom(""); setDateTo(""); setSelectedLegId(null); }}
             onSelect={selectLeg}
-            onAdd={() => setPanelView("add")}
+            onAdd={() => { setPanelView("add"); setJourneyDialogOpen(true); }}
           />
         </div>
 
       </aside>
 
-      <aside className={`journey-sidebar journey-sidebar--right ${rightSidebarOpen ? "" : "journey-sidebar--closed-right"}`} aria-label="Add journey" aria-hidden={!rightSidebarOpen}>
-        <button className="icon-button sidebar-close" type="button" onClick={() => setRightSidebarOpen(false)} aria-label="Hide right journey panel"><PanelLeftClose size={18} /></button>
-        <div className="sidebar-scroll">
-          {panelView === "edit" && selectedLeg ? (
-              <AddJourney
-                onSave={updateLeg}
-                initialLeg={selectedLeg}
-              recentPlaces={recentPlaces}
-            />
-          ) : panelView === "detail" && selectedLeg ? (
-            <JourneyDetail
-              leg={selectedLeg}
-              onBack={showJournal}
-              onRemove={removeLeg}
-              onEdit={() => setPanelView("edit")}
-              onReverse={() => reverseLeg(selectedLeg)}
-            />
-          ) : (
-              <AddJourney
-                onSave={addLeg}
-                previousLeg={latestLeg}
-              recentPlaces={recentPlaces}
-            />
-          )}
+      {journeyDialogOpen && (
+        <div
+          className="journey-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setJourneyDialogOpen(false);
+          }}
+        >
+          <section className="journey-dialog" role="dialog" aria-modal="true" aria-label="Journey">
+            <button className="icon-button journey-dialog__close" type="button" onClick={() => setJourneyDialogOpen(false)} aria-label="Close journey dialog">
+              <X size={20} />
+            </button>
+            <div className="sidebar-scroll">
+              {panelView === "edit" && selectedLeg ? (
+                <AddJourney
+                  onSave={updateLeg}
+                  initialLeg={selectedLeg}
+                  recentPlaces={recentPlaces}
+                />
+              ) : panelView === "detail" && selectedLeg ? (
+                <JourneyDetail
+                  leg={selectedLeg}
+                  onBack={showJournal}
+                  onRemove={removeLeg}
+                  onEdit={() => setPanelView("edit")}
+                  onReverse={() => reverseLeg(selectedLeg)}
+                />
+              ) : (
+                <AddJourney
+                  onSave={addLeg}
+                  previousLeg={latestLeg}
+                  recentPlaces={recentPlaces}
+                />
+              )}
+            </div>
+          </section>
         </div>
-      </aside>
+      )}
 
       <div className="mobile-map-label" aria-hidden="true"><MapIcon size={14} /> Map</div>
     </main>
