@@ -13,8 +13,11 @@ const numberFormat = new Intl.NumberFormat("en-GB");
 export function LaunchPage() {
   return (
     <main className="launch">
-      <div className="launch__map" aria-hidden="true">
+      <div className="launch__map launch__map--flat" aria-hidden="true">
         <MapShell legs={LAUNCH_SAMPLE_LEGS} sidebarOpen railPathStyle="straight" />
+      </div>
+      <div className="launch__map launch__map--planet" aria-hidden="true">
+        <MapShell legs={LAUNCH_SAMPLE_LEGS} sidebarOpen railPathStyle="straight" view="planet" continuousRotation />
       </div>
 
       <section className="ticket" aria-labelledby="launch-title">
@@ -24,15 +27,15 @@ export function LaunchPage() {
               <BrandMark />
               <span className="ticket__wordmark">Trainy</span>
             </span>
-            <span className="ticket__stamp">BOARDING PASS · CARTE D&rsquo;EMBARQUEMENT</span>
+            <span className="ticket__stamp">EUROPEAN RAIL + AIR PASSPORT</span>
           </header>
 
           <h1 id="launch-title">
-            Every train and flight you take, drawn on one map.
+            Every European train and flight you take, drawn on one map.
           </h1>
           <p className="ticket__lead">
-            Log a journey in seconds. Trainy traces the real tracks, counts the
-            countries, and keeps a passport of where you have been.
+            Log a journey in seconds. Trainy traces routes across Europe, counts
+            the countries, and keeps a passport of where you have been.
           </p>
 
           <dl className="ticket__fields">
@@ -59,7 +62,6 @@ export function LaunchPage() {
           <Link href="/app" className="ticket__secondary">
             Open the map without an account
           </Link>
-          <p className="ticket__note">Journeys stay in this browser until you sign in.</p>
         </div>
       </section>
     </main>

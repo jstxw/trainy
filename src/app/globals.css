@@ -1522,7 +1522,9 @@ select:focus-visible {
 .show-sidebar .brand-mark { width: 28px; height: 28px; }
 
 .show-sidebar--right {
+  top: auto;
   right: 18px;
+  bottom: 18px;
   left: auto;
   justify-content: center;
   width: 54px;
@@ -1651,31 +1653,6 @@ select:focus-visible {
   color: var(--rail);
 }
 
-.map-empty-state {
-  position: fixed;
-  z-index: 10;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: 250px;
-  justify-items: center;
-  padding: 24px;
-  border: 1px solid rgba(37, 43, 99, 0.14);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--fg-secondary);
-  box-shadow: 0 18px 50px rgba(48, 53, 140, 0.22);
-  backdrop-filter: blur(16px);
-  text-align: center;
-  transform: translate(-50%, -50%);
-}
-
-.has-sidebar .map-empty-state { margin-left: calc(var(--sidebar-width) / 2); }
-.map-empty-state > span { display: grid; width: 42px; height: 42px; margin-bottom: 13px; border-radius: 50%; place-items: center; background: rgba(64, 70, 224, 0.1); color: var(--rail); }
-.map-empty-state strong { color: var(--fg-primary); font-size: 13px; }
-.map-empty-state p { margin: 6px 0 14px; font-size: 10px; }
-.map-empty-state button { display: flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--accent); font-size: 10px; cursor: pointer; }
-
 .mobile-map-label { display: none; }
 
 .maplibregl-ctrl-bottom-left { display: none; }
@@ -1754,10 +1731,8 @@ select:focus-visible {
   .journey-row__meta time { display: none; }
   .has-sidebar .map-controls { top: 16px; bottom: auto; left: 16px; }
   .is-map-only .map-controls { top: 72px; bottom: auto; left: 14px; }
-  .has-sidebar .map-empty-state { top: 21.5%; margin-left: 0; }
-  .map-empty-state { width: 220px; padding: 18px; }
   .show-sidebar { top: 14px; left: 14px; }
-  .show-sidebar--right { right: 14px; left: auto; }
+  .show-sidebar--right { top: auto; right: 14px; bottom: 14px; left: auto; }
   .journey-dialog-backdrop { padding: 12px; }
   .journey-dialog {
     width: 100%;
@@ -1817,13 +1792,25 @@ select:focus-visible {
 }
 
 .account-chip--guest {
-  padding: 6px 10px;
+  position: absolute;
+  top: -8px;
+  right: 40px;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-color: rgba(255, 255, 255, 0.62);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--fg-secondary);
+  box-shadow: 0 6px 18px rgba(25, 29, 91, 0.2);
 }
 
 .account-chip--guest:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-overlay);
-  color: var(--fg-primary);
+  border-color: #fff;
+  background: #fff;
+  color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .account-chip__avatar {
@@ -1872,77 +1859,111 @@ select:focus-visible {
   display: grid;
   place-items: center;
   height: 100dvh;
-  padding: 24px;
+  padding: clamp(14px, 3vw, 42px);
   background:
-    radial-gradient(60% 50% at 20% 0%, rgba(128, 85, 232, 0.16), transparent 70%),
-    radial-gradient(50% 45% at 90% 100%, rgba(64, 70, 224, 0.18), transparent 70%),
+    radial-gradient(60% 55% at 10% 0%, rgba(128, 85, 232, 0.22), transparent 72%),
+    radial-gradient(55% 55% at 95% 100%, rgba(64, 70, 224, 0.2), transparent 72%),
     var(--bg-page);
+}
+
+.login-shell {
+  display: grid;
+  grid-template-columns: minmax(400px, 0.88fr) minmax(460px, 1.12fr);
+  width: min(1180px, 100%);
+  height: min(760px, calc(100dvh - clamp(28px, 6vw, 84px)));
+  min-height: 600px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 30px;
+  background: #fff;
+  box-shadow: 0 32px 90px rgba(37, 43, 99, 0.28);
 }
 
 .login-card {
   position: relative;
-  width: min(440px, 100%);
-  padding: 30px 30px 26px;
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  background: var(--bg-base);
-  box-shadow: 0 24px 60px -30px rgba(37, 43, 99, 0.45);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  padding: clamp(38px, 5vw, 68px);
+  border: 0;
+  border-radius: 29px 0 0 29px;
+  background:
+    radial-gradient(90% 65% at 0 0, rgba(128, 85, 232, 0.34), transparent 70%),
+    linear-gradient(155deg, #252b63 0%, #303681 55%, #252b63 100%);
+  color: #fff;
+  box-shadow: none;
 }
 
-.login-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 6px;
-  border-radius: 22px 22px 0 0;
-  background: linear-gradient(90deg, var(--rail), var(--air));
-}
+.login-card::before { display: none; }
 
 .login-back {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 22px;
-  color: var(--fg-muted);
+  position: absolute;
+  top: 28px;
+  left: clamp(38px, 5vw, 68px);
+  color: rgba(255, 255, 255, 0.62);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
 }
 
-.login-back:hover { color: var(--fg-primary); }
+.login-back:hover { color: #fff; }
 
 .login-card__brand {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 44px;
+}
+
+.login-card__wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-card__wordmark .brand-mark {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.login-card__wordmark strong {
+  color: #fff;
+  font-size: 18px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .login-card__stamp {
-  color: var(--fg-muted);
+  color: rgba(255, 255, 255, 0.5);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.14em;
 }
 
 .login-card h1 {
-  margin: 0 0 8px;
-  color: var(--fg-primary);
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
+  margin: 0 0 10px;
+  color: #fff;
+  font-size: clamp(34px, 3.5vw, 46px);
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
 }
 
 .login-card__lead {
   margin: 0 0 22px;
-  color: var(--fg-secondary);
-  font-size: 14.5px;
+  max-width: 430px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 15px;
   line-height: 1.5;
 }
 
-.login-methods { display: grid; gap: 14px; }
+.login-methods { display: grid; gap: 15px; width: 100%; max-width: 430px; }
 
 .login-google,
 .login-submit {
@@ -1951,7 +1972,7 @@ select:focus-visible {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  height: 46px;
+  height: 50px;
   padding: 0 16px;
   border-radius: 12px;
   font-size: 14.5px;
@@ -1961,20 +1982,21 @@ select:focus-visible {
 }
 
 .login-google {
-  border: 1px solid var(--border-strong);
-  background: var(--bg-base);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.96);
   color: var(--fg-primary);
 }
 
-.login-google:hover { background: var(--bg-raised); }
+.login-google:hover { background: #fff; }
 
 .login-submit {
   border: 0;
-  background: var(--accent);
+  background: linear-gradient(135deg, #6e74f3, #8055e8);
   color: #ffffff;
+  box-shadow: 0 12px 28px rgba(14, 17, 65, 0.28);
 }
 
-.login-submit:hover { background: #3238c9; }
+.login-submit:hover { background: linear-gradient(135deg, #7b80f7, #8c63ed); }
 .login-submit:disabled { opacity: 0.6; cursor: progress; }
 
 .login-google:active,
@@ -1984,7 +2006,7 @@ select:focus-visible {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: var(--fg-muted);
+  color: rgba(255, 255, 255, 0.48);
   font-size: 12px;
   font-weight: 600;
 }
@@ -1994,7 +2016,7 @@ select:focus-visible {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--border);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .login-form { display: grid; gap: 10px; }
@@ -2003,17 +2025,21 @@ select:focus-visible {
   width: 100%;
   height: 46px;
   padding: 0 14px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 12px;
-  background: var(--bg-raised);
-  color: var(--fg-primary);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
   outline: none;
 }
 
 .login-form input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(64, 70, 224, 0.18);
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
 }
+
+.login-form input::placeholder { color: rgba(255, 255, 255, 0.42); }
+.login-card .field-label { color: rgba(255, 255, 255, 0.64); }
 
 .login-form input[aria-invalid="true"] { border-color: var(--alert); }
 
@@ -2054,23 +2080,81 @@ select:focus-visible {
 
 .login-card__guest {
   margin: 22px 0 0;
-  color: var(--fg-muted);
+  color: rgba(255, 255, 255, 0.54);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .login-card__guest a {
-  color: var(--accent);
+  color: #fff;
   font-weight: 700;
   text-decoration: none;
 }
 
 .login-card__guest a:hover { text-decoration: underline; }
 
-@media (max-width: 520px) {
+.login-visual {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: linear-gradient(145deg, #f7f7ff, #d9dcf8);
+}
+
+.login-visual .planet-globe {
+  position: absolute;
+  inset: 0;
+}
+
+.login-visual .planet-hint { display: none; }
+
+.login-visual::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(37, 43, 99, 0.22), transparent 22%),
+    linear-gradient(180deg, transparent 55%, rgba(37, 43, 99, 0.5));
+  content: "";
+  pointer-events: none;
+}
+
+.login-visual__copy {
+  position: absolute;
+  z-index: 2;
+  right: clamp(26px, 4vw, 54px);
+  bottom: clamp(28px, 5vw, 58px);
+  left: clamp(26px, 4vw, 54px);
+  display: grid;
+  gap: 8px;
+  color: #fff;
+}
+
+.login-visual__copy span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+
+.login-visual__copy strong {
+  max-width: 480px;
+  font-size: clamp(24px, 3vw, 38px);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+@media (max-width: 860px) {
   .login-page { padding: 14px; }
-  .login-card { padding: 24px 20px 20px; border-radius: 18px; }
-  .login-card h1 { font-size: 23px; }
+  .login-shell {
+    display: block;
+    width: min(520px, 100%);
+    height: auto;
+    min-height: 0;
+    border-radius: 22px;
+  }
+  .login-card { min-height: min(680px, calc(100dvh - 28px)); padding: 74px 24px 28px; border-radius: 21px; }
+  .login-back { top: 24px; left: 24px; }
+  .login-card h1 { font-size: 34px; }
+  .login-visual { display: none; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -2090,6 +2174,17 @@ select:focus-visible {
   inset: 0;
   pointer-events: none;
 }
+
+.launch__map--flat { z-index: 0; }
+
+.launch__map--planet {
+  z-index: 1;
+  -webkit-mask-image: linear-gradient(90deg, transparent 34%, rgba(0, 0, 0, 0.08) 52%, #000 80%);
+  mask-image: linear-gradient(90deg, transparent 34%, rgba(0, 0, 0, 0.08) 52%, #000 80%);
+}
+
+.launch__map--planet .planet-globe { position: absolute; }
+.launch__map--planet .planet-hint { display: none; }
 
 .launch__map .journey-map,
 .launch__map > * {
@@ -2333,3 +2428,77 @@ select:focus-visible {
 
 /* The launch map is a backdrop: hide inert zoom controls, keep attribution. */
 .launch__map .maplibregl-ctrl-group { display: none; }
+
+/* ---------- 3D planet view ---------- */
+
+.planet-globe {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 60%, #eef0fc 0%, #dfe1f7 55%, #cfd3f1 100%);
+  touch-action: none;
+}
+
+.planet-globe canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.planet-tooltip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  max-width: 260px;
+}
+
+.planet-loading,
+.map-loading--planet {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  justify-items: center;
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  pointer-events: none;
+}
+
+.map-loading--planet {
+  position: fixed;
+  background:
+    radial-gradient(120% 90% at 50% 60%, #eef0fc 0%, #dfe1f7 55%, #cfd3f1 100%);
+}
+
+.planet-hint {
+  position: absolute;
+  z-index: 2;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 12px;
+  border: 1px solid rgba(37, 43, 99, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
+.has-sidebar .planet-hint { left: calc(50% + var(--sidebar-width) / 2); }
+
+@media (max-width: 760px) {
+  .planet-hint { display: none; }
+  .has-sidebar .planet-hint { left: 50%; }
+}

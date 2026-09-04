@@ -16,8 +16,8 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Trainy — Your journeys, mapped",
-  description: "Every train and flight you take, drawn on one map. A map-first travel passport for rail and air.",
+  title: "Trainy — Your European journeys, mapped",
+  description: "Every European train and flight you take, drawn on one map. A map-first travel passport for rail and air across Europe.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

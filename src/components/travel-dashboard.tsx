@@ -16,13 +16,13 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Globe,
   Map as MapIcon,
   MapPin,
   PanelLeftClose,
   Pencil,
   Plane,
   Plus,
-  Route,
   MoveUpRight,
   Search,
   Spline,
@@ -31,8 +31,8 @@ import {
   X,
 } from "lucide-react";
 import { AccountChip, type Account } from "@/components/account-chip";
-import { MapShell } from "@/components/map-shell";
-import type { RailPathStyle } from "@/components/journey-map";
+import { MapShell, type MapView } from "@/components/map-shell";
+import type { RailPathStyle } from "@/lib/rail-path";
 import type {
   JourneyLeg,
   PersistenceMode,
@@ -53,6 +53,7 @@ type ModeFilter = "all" | TravelMode;
 type PanelView = "journal" | "detail" | "add" | "edit";
 
 const PATH_STYLE_STORAGE_KEY = "rail-log:path-style:v1";
+const MAP_VIEW_STORAGE_KEY = "rail-log:map-view:v1";
 const ROUTE_REFRESH_STORAGE_KEY = "rail-log:route-refresh:v1";
 
 // Rail legs saved before route lookup existed carry a straight line and no
@@ -1072,6 +1073,20 @@ export function TravelDashboard({
     try { window.localStorage.setItem(PATH_STYLE_STORAGE_KEY, style); } catch { /* In-memory state still works. */ }
   }
 
+  const [mapView, setMapView] = useState<MapView>("map");
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(MAP_VIEW_STORAGE_KEY);
+      if (saved === "map" || saved === "planet") queueMicrotask(() => setMapView(saved));
+    } catch { /* The flat map still works. */ }
+  }, []);
+
+  function changeMapView(view: MapView) {
+    setMapView(view);
+    try { window.localStorage.setItem(MAP_VIEW_STORAGE_KEY, view); } catch { /* In-memory state still works. */ }
+  }
+
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(JOURNAL_STORAGE_KEY);
@@ -1300,7 +1315,7 @@ export function TravelDashboard({
   return (
     <main className={`map-workspace ${leftSidebarOpen ? "has-sidebar" : "is-map-only"}`}>
       <div className="map-canvas" aria-label="Journey map">
-        <MapShell legs={mapLegs} selectedLegId={selectedLegId} sidebarOpen={leftSidebarOpen} railPathStyle={railPathStyle} onSelectLeg={(id) => {
+        <MapShell legs={mapLegs} selectedLegId={selectedLegId} sidebarOpen={leftSidebarOpen} railPathStyle={railPathStyle} view={mapView} onSelectLeg={(id) => {
           const leg = legs.find((candidate) => candidate.id === id);
           if (leg) selectLeg(leg);
         }} />
@@ -1347,14 +1362,27 @@ export function TravelDashboard({
               <Spline size={12} /> Tracks
             </button>
           </div>
+
+          <div className="map-path-toggle map-view-toggle" role="group" aria-label="Map view">
+            <button
+              type="button"
+              className={mapView === "map" ? "is-active" : ""}
+              aria-pressed={mapView === "map"}
+              onClick={() => changeMapView("map")}
+            >
+              <MapIcon size={12} /> Map
+            </button>
+            <button
+              type="button"
+              className={mapView === "planet" ? "is-active" : ""}
+              aria-pressed={mapView === "planet"}
+              onClick={() => changeMapView("planet")}
+            >
+              <Globe size={12} /> Planet
+            </button>
+          </div>
         </div>
 
-        {legs.length === 0 && (
-          <div className="map-empty-state">
-            <span><Route size={22} /></span><strong>Your map is ready</strong><p>Add a journey to draw your first line.</p>
-            <button type="button" onClick={() => { setJourneyDialogOpen(true); setPanelView("add"); }}>Add journey <ArrowRight size={14} /></button>
-          </div>
-        )}
       </div>
 
       <aside className={`journey-sidebar ${leftSidebarOpen ? "" : "journey-sidebar--closed-left"}`} aria-label="Journey information" aria-hidden={!leftSidebarOpen}>

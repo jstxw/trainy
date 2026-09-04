@@ -23,15 +23,6 @@ export function LoginForm({ initialError }: { initialError?: string }) {
 
   return (
     <div className="login-methods">
-      <form action={signInWithGoogle}>
-        <button className="login-google" type="submit">
-          <GoogleMark />
-          Continue with Google
-        </button>
-      </form>
-
-      <div className="login-divider" aria-hidden="true"><span>or</span></div>
-
       <form action={submit} className="login-form" noValidate>
         <label>
           <span className="field-label">Email</span>
@@ -51,6 +42,15 @@ export function LoginForm({ initialError }: { initialError?: string }) {
           {!pending && <ArrowRight size={16} aria-hidden="true" />}
         </button>
         {error && <p className="login-error" role="alert">{error}</p>}
+      </form>
+
+      <div className="login-divider" aria-hidden="true"><span>or</span></div>
+
+      <form action={signInWithGoogle}>
+        <button className="login-google" type="submit">
+          <GoogleMark />
+          Continue with Google
+        </button>
       </form>
     </div>
   );

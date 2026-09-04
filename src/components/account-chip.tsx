@@ -1,22 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { CloudOff, LogOut, UserRound } from "lucide-react";
+import { LogOut, UserRound } from "lucide-react";
 import { signOut } from "@/app/login/actions";
 
 export type Account = { email: string } | null;
 
 /**
  * Sits in the passport header. Signed-in users see who they are and can sign
- * out; guests get a nudge to sync. Both states stay small so the passport title
- * keeps the room.
+ * out; guests get a compact sign-in action. Both states stay small so the
+ * passport title keeps the room.
  */
 export function AccountChip({ account }: { account: Account }) {
   if (!account) {
     return (
-      <Link href="/login" className="account-chip account-chip--guest" title="Journeys are stored only in this browser">
-        <CloudOff size={14} aria-hidden="true" />
-        <span>Sign in to sync</span>
+      <Link href="/login" className="account-chip account-chip--guest" aria-label="Sign in" title="Sign in">
+        <UserRound size={18} aria-hidden="true" />
       </Link>
     );
   }
